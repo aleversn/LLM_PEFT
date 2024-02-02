@@ -1,0 +1,7 @@
+.vscode
+*.txt
+**/**/__pycache__
+model/
+save_model/
+data_record/
+data/
