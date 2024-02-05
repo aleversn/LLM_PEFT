@@ -56,6 +56,8 @@ class Analysis():
         head = []
         for key in record_dict:
             head.append(key)
+        if len(head) == 0:
+            return uid
         result = ''
         for idx in range(len(record_dict[head[0]])):
             for key in head:

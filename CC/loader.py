@@ -2,7 +2,8 @@ import os
 import json
 import random
 from torch.utils.data import TensorDataset, DataLoader, Dataset
-from CC.loaders.chatglm_lora import ChatGLM_LoRADataset
+from CC.loaders.chatglm_std import ChatGLM_LoRADataset
+from CC.loaders.chatglm_chat import ChatGLM_ChatDataset
 
 
 class AutoDataloader():
@@ -27,6 +28,14 @@ class AutoDataloader():
                 tokenizer, config, self.data_path['dev'], max_length=self.max_length, do_shuffle=False)
             if 'test' in self.data_path:
                 self.test_set = ChatGLM_LoRADataset(
+                    tokenizer, config, self.data_path['test'], max_length=self.max_length, do_shuffle=False)
+        elif loader_name == 'ChatGLM_Chat':
+            self.train_set = ChatGLM_ChatDataset(
+                tokenizer, config, self.data_path['train'], max_length=self.max_length, do_shuffle=True)
+            self.eval_set = ChatGLM_ChatDataset(
+                tokenizer, config, self.data_path['dev'], max_length=self.max_length, do_shuffle=False)
+            if 'test' in self.data_path:
+                self.test_set = ChatGLM_ChatDataset(
                     tokenizer, config, self.data_path['test'], max_length=self.max_length, do_shuffle=False)
 
     def get_data_present(self, present_path):
