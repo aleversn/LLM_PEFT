@@ -53,27 +53,6 @@ class Predictor():
             out_text = self.tokenizer.decode(output[0], skip_special_tokens=True)
         return out_text
     
-    def process_response(self, output, history):
-        content = ""
-        history = deepcopy(history)
-        for response in output.split("<|assistant|>"):
-            metadata, content = response.split("\n", maxsplit=1)
-            if not metadata.strip():
-                content = content.strip()
-                history.append({"role": "assistant", "metadata": metadata, "content": content})
-                content = content.replace("[[训练时间]]", "2023年")
-            else:
-                history.append({"role": "assistant", "metadata": metadata, "content": content})
-                if history[0]["role"] == "system" and "tools" in history[0]:
-                    content = "\n".join(content.split("\n")[1:-1])
-                    def tool_call(**kwargs):
-                        return kwargs
-                    parameters = eval(content)
-                    content = {"name": metadata.strip(), "parameters": parameters}
-                else:
-                    content = {"name": metadata.strip(), "content": content}
-        return content, history
-    
     @torch.inference_mode()
     def chat(self, query: str, history: List[Tuple[str, str]] = None, role: str = "user",
              max_length: int = 8192, num_beams=1, do_sample=True, top_p=0.8, temperature=0.8, logits_processor=None,
