@@ -41,7 +41,7 @@ class Trainer():
         if self.accelerate.is_local_main_process:
             print('AutoModel Choose Model: {}\n'.format(self.model_from_pretrained))
         self.model = AutoModelForCausalLM.from_pretrained(
-                self.model_from_pretrained, trust_remote_code=True).cuda()
+                self.model_from_pretrained, device_map='cuda:0', trust_remote_code=True).cuda()
         peft_config = LoraConfig(
             task_type=TaskType.CAUSAL_LM,
             inference_mode=False,
@@ -199,27 +199,30 @@ class Trainer():
         pred_logits = pred_logits.tolist()
         shift_labels = labels[..., 1:].tolist()
 
-        metrics_dct = {'rouge-1': [], 'rouge-2': [], 'rouge-l': [], 'bleu-4': []}
-        for pred_ids, label_ids in zip(pred_logits, shift_labels):
-            pred_ids_non_mask = []
-            label_ids_non_mask = []
-            for i in range(len(label_ids)):
-                if label_ids[i] != -100:
-                    pred_ids_non_mask.append(pred_ids[i])
-                    label_ids_non_mask.append(label_ids[i])
-            pred_txt = self.tokenizer.decode(pred_ids_non_mask).strip()
-            label_txt = self.tokenizer.decode(label_ids_non_mask).strip()
-            pred_tokens = list(jieba.cut(pred_txt))
-            label_tokens = list(jieba.cut(label_txt))
-            rouge = Rouge()
-            scores = rouge.get_scores(' '.join(pred_tokens), ' '.join(label_tokens))
-            for k, v in scores[0].items():
-                metrics_dct[k].append(round(v['f'] * 100, 4))
-            metrics_dct['bleu-4'].append(
-                sentence_bleu(
-                    [label_tokens],
-                    pred_tokens,
-                    smoothing_function=SmoothingFunction().method3,
+        try:
+            metrics_dct = {'rouge-1': [], 'rouge-2': [], 'rouge-l': [], 'bleu-4': []}
+            for pred_ids, label_ids in zip(pred_logits, shift_labels):
+                pred_ids_non_mask = []
+                label_ids_non_mask = []
+                for i in range(len(label_ids)):
+                    if label_ids[i] != -100:
+                        pred_ids_non_mask.append(pred_ids[i])
+                        label_ids_non_mask.append(label_ids[i])
+                pred_txt = self.tokenizer.decode(pred_ids_non_mask).strip()
+                label_txt = self.tokenizer.decode(label_ids_non_mask).strip()
+                pred_tokens = list(jieba.cut(pred_txt))
+                label_tokens = list(jieba.cut(label_txt))
+                rouge = Rouge()
+                scores = rouge.get_scores(' '.join(pred_tokens), ' '.join(label_tokens))
+                for k, v in scores[0].items():
+                    metrics_dct[k].append(round(v['f'] * 100, 4))
+                metrics_dct['bleu-4'].append(
+                    sentence_bleu(
+                        [label_tokens],
+                        pred_tokens,
+                        smoothing_function=SmoothingFunction().method3,
+                    )
                 )
-            )
-        return {k: np.mean(v) for k, v in metrics_dct.items()}
+            return {k: np.mean(v) for k, v in metrics_dct.items()}
+        except:
+            return {k: 0 for k, v in metrics_dct.items()}
