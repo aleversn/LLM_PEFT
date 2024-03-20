@@ -201,26 +201,29 @@ class Trainer():
 
         metrics_dct = {'rouge-1': [], 'rouge-2': [], 'rouge-l': [], 'bleu-4': []}
         for pred_ids, label_ids in zip(pred_logits, shift_labels):
-            answer_idx = 0
-            for i in range(len(label_ids)):
-                if label_ids[i] != -100:
-                    answer_idx = i
-                    break
-            pred_ids = pred_ids[answer_idx:]
-            label_ids = label_ids[answer_idx:]
-            pred_txt = self.tokenizer.decode(pred_ids).strip()
-            label_txt = self.tokenizer.decode(label_ids).strip()
-            pred_tokens = list(jieba.cut(pred_txt))
-            label_tokens = list(jieba.cut(label_txt))
-            rouge = Rouge()
-            scores = rouge.get_scores(' '.join(pred_tokens), ' '.join(label_tokens))
-            for k, v in scores[0].items():
-                metrics_dct[k].append(round(v['f'] * 100, 4))
-            metrics_dct['bleu-4'].append(
-                sentence_bleu(
-                    [label_tokens],
-                    pred_tokens,
-                    smoothing_function=SmoothingFunction().method3,
+            try:
+                answer_idx = 0
+                for i in range(len(label_ids)):
+                    if label_ids[i] != -100:
+                        answer_idx = i
+                        break
+                pred_ids = pred_ids[answer_idx:]
+                label_ids = label_ids[answer_idx:]
+                pred_txt = self.tokenizer.decode(pred_ids).strip()
+                label_txt = self.tokenizer.decode(label_ids).strip()
+                pred_tokens = list(jieba.cut(pred_txt))
+                label_tokens = list(jieba.cut(label_txt))
+                rouge = Rouge()
+                scores = rouge.get_scores(' '.join(pred_tokens), ' '.join(label_tokens))
+                for k, v in scores[0].items():
+                    metrics_dct[k].append(round(v['f'] * 100, 4))
+                metrics_dct['bleu-4'].append(
+                    sentence_bleu(
+                        [label_tokens],
+                        pred_tokens,
+                        smoothing_function=SmoothingFunction().method3,
+                    )
                 )
-            )
-        return {k: np.mean(v) for k, v in metrics_dct.items()}
+            except:
+                continue
+        return {k: np.mean(v) if len(v) > 0 else 0 for k, v in metrics_dct.items()}

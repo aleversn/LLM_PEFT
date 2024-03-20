@@ -41,7 +41,7 @@ class Trainer():
         if self.accelerate.is_local_main_process:
             print('AutoModel Choose Model: {}\n'.format(self.model_from_pretrained))
         self.model = AutoModelForCausalLM.from_pretrained(
-                self.model_from_pretrained, device_map='cuda:0', trust_remote_code=True).cuda()
+                self.model_from_pretrained, trust_remote_code=True).cuda()
         peft_config = LoraConfig(
             task_type=TaskType.CAUSAL_LM,
             inference_mode=False,
@@ -57,6 +57,7 @@ class Trainer():
         else:
             self.model = get_peft_model(self.model, peft_config)
             self.model.print_trainable_parameters()
+        self.model.to(torch.bfloat16)
 
     def dataloader_init(self):
         d = AutoDataloader(self.tokenizer, self.config, loader_name=self.loader_name, data_path=self.data_path,
@@ -92,7 +93,7 @@ class Trainer():
             self.model.train()
 
             for it in train_iter:
-
+                
                 output = self.model(**it)
                 loss = output.loss
                 loss = loss.mean()
@@ -107,7 +108,7 @@ class Trainer():
                 metrics = self.compute_metrics(logits, labels)
                 for k, v in metrics.items():
                     eval_scores[k] += v
-
+                
                 train_loss += loss.data.item()
                 train_count += 1
                 train_step += 1
@@ -137,7 +138,7 @@ class Trainer():
             dir = 'undefined'
         else:
             dir = self.task_name
-        save_path = f'./save_model/{dir}/ChatGLM_{current_step}'
+        save_path = f'./save_model/{dir}/Qwen_{current_step}'
         if not os.path.exists(save_path):
             os.makedirs(save_path)
         save_model = self.accelerate.unwrap_model(self.model)
