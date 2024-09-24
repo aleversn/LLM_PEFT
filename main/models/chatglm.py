@@ -2,10 +2,8 @@ from re import A
 import torch
 import torch.nn as nn
 from transformers import AutoTokenizer, AutoModel
-from ICCSupervised.ICCSupervised import IModel
 
-
-class CCGPTModel(IModel):
+class CCGPTModel():
 
     def __init__(
         self,

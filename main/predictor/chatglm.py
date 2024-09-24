@@ -8,12 +8,11 @@ import torch.nn as nn
 import torch.optim as optim
 from transformers import BertConfig, BertTokenizer, BertModel, get_linear_schedule_with_warmup
 from tqdm import tqdm
-from ICCSupervised.ICCSupervised import IPredict
 from main.models.chatglm import CCGPTModel
 from transformers import AutoTokenizer, AutoModel
 
 
-class GPTPredict(IPredict):
+class GPTPredict():
 
     def __init__(self,
                  num_gpus: list = [0],
