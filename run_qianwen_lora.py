@@ -1,4 +1,4 @@
-from CC.trainer.qianwen_lora import Trainer
+from main.trainer.qianwen_lora import Trainer
 from transformers import AutoTokenizer, AutoConfig
 
 tokenizer = AutoTokenizer.from_pretrained("model/Qwen-14B-Chat-Int4", trust_remote_code=True)

@@ -12,8 +12,8 @@ import jieba
 from nltk.translate.bleu_score import SmoothingFunction, sentence_bleu
 from rouge_chinese import Rouge
 from tqdm import tqdm
-from CC.loader import AutoDataloader
-from CC.analysis import Analysis
+from main.loader import AutoDataloader
+from main.analysis import Analysis
 from accelerate import Accelerator
 accelerator = Accelerator()
 

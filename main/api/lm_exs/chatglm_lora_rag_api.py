@@ -1,5 +1,5 @@
 # 创建或者加载chromadb客户端
-from CC.predictor.chatglm_lora import Predictor
+from main.predictor.chatglm_lora import Predictor
 import chromadb
 from chromadb.utils import embedding_functions
 

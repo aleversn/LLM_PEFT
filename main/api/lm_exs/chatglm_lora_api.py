@@ -1,4 +1,4 @@
-from CC.predictor.chatglm_lora import Predictor
+from main.predictor.chatglm_lora import Predictor
 
 pred = Predictor(model_from_pretrained='../../model/chatglm3-6b',
                  resume_path='../../save_model/FDRAG/ChatGLM_44136')

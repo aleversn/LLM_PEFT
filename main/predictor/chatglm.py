@@ -9,7 +9,7 @@ import torch.optim as optim
 from transformers import BertConfig, BertTokenizer, BertModel, get_linear_schedule_with_warmup
 from tqdm import tqdm
 from ICCSupervised.ICCSupervised import IPredict
-from CC.models.chatglm import CCGPTModel
+from main.models.chatglm import CCGPTModel
 from transformers import AutoTokenizer, AutoModel
 
 

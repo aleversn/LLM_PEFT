@@ -9,8 +9,8 @@ from transformers import get_linear_schedule_with_warmup
 from peft import get_peft_model, LoraConfig, TaskType, PeftModel
 import numpy as np
 from tqdm import tqdm
-from CC.loader import AutoDataloader
-from CC.analysis import Analysis
+from main.loader import AutoDataloader
+from main.analysis import Analysis
 
 
 class Trainer():

@@ -2,9 +2,9 @@ import os
 import json
 import random
 from torch.utils.data import TensorDataset, DataLoader, Dataset
-from CC.loaders.chatglm_std import ChatGLM_LoRADataset
-from CC.loaders.chatglm_chat import ChatGLM_ChatDataset
-from CC.loaders.qianwen_chat import QianwenChatDataset
+from main.loaders.chatglm_std import ChatGLM_LoRADataset
+from main.loaders.chatglm_chat import ChatGLM_ChatDataset
+from main.loaders.qianwen_chat import QianwenChatDataset
 
 
 class AutoDataloader():

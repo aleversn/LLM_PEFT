@@ -9,8 +9,8 @@ import uuid
 sys.path.append(os.path.dirname(os.path.dirname(
     os.path.dirname(os.path.abspath(__file__)))))
 
-from CC.api.lm_exs.chatglm_lora_rag_api import *
-from CC.api.utils import response_body, ChatItem
+from main.api.lm_exs.chatglm_lora_rag_api import *
+from main.api.utils import response_body, ChatItem
 
 app = FastAPI()
 app.add_middleware(
