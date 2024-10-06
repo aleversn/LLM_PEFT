@@ -62,7 +62,7 @@ class Trainer():
         d = AutoDataloader(self.tokenizer, self.config, loader_name=self.loader_name, data_path=self.data_path,
                            max_length=self.max_length)
         self.train_loader, self.eval_loader = d(
-            self.batch_size, self.batch_size_eval, self.eval_mode)
+            self.batch_size, self.batch_size_eval, self.eval_mode, True)
 
 
     def __call__(self, resume_step=None, num_epochs=30, lr=1e-4, eval_call_epoch=None):

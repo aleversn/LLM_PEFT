@@ -5,7 +5,41 @@ from torch.utils.data import TensorDataset, DataLoader, Dataset
 from main.loaders.chatglm_std import ChatGLM_LoRADataset
 from main.loaders.chatglm_chat import ChatGLM_ChatDataset
 from main.loaders.qianwen_chat import QianwenChatDataset
+from main.loaders.chatglm_rlhf import ChatGLM_RLHFDataset
+import torch
 
+def collate_fn_wrapper(tokenizer):
+    def left_pad_collate_fn(batch):
+        result = {}
+        max_length = 0
+        max_length_without_last_turn = 0
+        for item in batch:
+            if item['input_ids'].shape[0] > max_length:
+                max_length = item['input_ids'].shape[0]
+            if 'input_ids_without_last_turn' in item and item['input_ids_without_last_turn'].shape[0] > max_length_without_last_turn:
+                max_length_without_last_turn = item['input_ids_without_last_turn'].shape[0]
+        for item in batch:
+            for key in item:
+                if key not in result:
+                    result[key] = []
+                if key in ('input_ids'):
+                    pad_length = max_length - len(item[key])
+                    item[key] = torch.cat([torch.LongTensor([tokenizer.pad_token_id] * pad_length), item[key]], dim=-1)
+                elif key == ('labels'):
+                    pad_length = max_length - len(item[key])
+                    item[key] = torch.cat([torch.LongTensor([-100] * pad_length), item[key]], dim=-1)
+                if key in ('input_ids_without_last_turn'):
+                    pad_length = max_length_without_last_turn - len(item[key])
+                    item[key] = torch.cat([torch.LongTensor([tokenizer.pad_token_id] * pad_length), item[key]], dim=-1)
+                elif key == ('labels_without_last_turn'):
+                    pad_length = max_length_without_last_turn - len(item[key])
+                    item[key] = torch.cat([torch.LongTensor([-100] * pad_length), item[key]], dim=-1)
+                result[key].append(item[key])
+        for key in result:
+            if key in ('input_ids', 'labels', 'input_ids_without_last_turn', 'labels_without_last_turn', 'last_input_len'):
+                result[key] = torch.stack(result[key])
+        return result
+    return left_pad_collate_fn
 
 class AutoDataloader():
 
@@ -18,6 +52,7 @@ class AutoDataloader():
     '''
 
     def __init__(self, tokenizer, config, loader_name='ChatGLM_LoRA', data_path="Boss", data_present_path="./data/present.json", max_length=50):
+        self.tokenizer = tokenizer
         self.loader_name = loader_name
         self.max_length = max_length
         self.data_present = self.get_data_present(data_present_path)
@@ -38,6 +73,14 @@ class AutoDataloader():
             if 'test' in self.data_path:
                 self.test_set = ChatGLM_ChatDataset(
                     tokenizer, config, self.data_path['test'], max_length=self.max_length, do_shuffle=False)
+        elif loader_name == 'ChatGLM_RLHF':
+            self.train_set = ChatGLM_RLHFDataset(
+                tokenizer, config, self.data_path['train'], max_length=self.max_length, do_shuffle=True)
+            self.eval_set = ChatGLM_RLHFDataset(
+                tokenizer, config, self.data_path['dev'], max_length=self.max_length, do_shuffle=False)
+            if 'test' in self.data_path:
+                self.test_set = ChatGLM_RLHFDataset(
+                    tokenizer, config, self.data_path['test'], max_length=self.max_length, do_shuffle=False)
         elif loader_name == 'Qianwen_Chat':
             self.train_set = QianwenChatDataset(
                 tokenizer, config, self.data_path['train'], max_length=self.max_length, do_shuffle=True)
@@ -55,12 +98,22 @@ class AutoDataloader():
         data_present = json.loads(present_json)
         return data_present
 
-    def __call__(self, batch_size=1, batch_size_eval=1, eval_mode='dev'):
-        dataiter = DataLoader(self.train_set, batch_size=batch_size)
-        if eval_mode == 'dev':
-            dataiter_eval = DataLoader(
-                self.eval_set, batch_size=batch_size_eval)
+    def __call__(self, batch_size=1, batch_size_eval=1, eval_mode='dev', use_collate=False):
+        if not use_collate:
+            dataiter = DataLoader(self.train_set, batch_size=batch_size)
+            if eval_mode == 'dev':
+                dataiter_eval = DataLoader(
+                    self.eval_set, batch_size=batch_size_eval)
+            else:
+                dataiter_eval = DataLoader(
+                    self.test_set, batch_size=batch_size_eval)
         else:
-            dataiter_eval = DataLoader(
-                self.test_set, batch_size=batch_size_eval)
+            left_pad_collate_fn = collate_fn_wrapper(self.tokenizer)
+            dataiter = DataLoader(self.train_set, batch_size=batch_size, collate_fn=left_pad_collate_fn)
+            if eval_mode == 'dev':
+                dataiter_eval = DataLoader(
+                    self.eval_set, batch_size=batch_size_eval, collate_fn=left_pad_collate_fn)
+            else:
+                dataiter_eval = DataLoader(
+                    self.test_set, batch_size=batch_size_eval, collate_fn=left_pad_collate_fn)
         return dataiter, dataiter_eval

@@ -26,7 +26,8 @@ class ChatGLM_ChatDataset(Dataset):
     
     def load_jsonl(self, file_name):
         with open(file_name, 'r') as f:
-            data = [json.loads(line) for line in f]
+            lines = f.readlines()
+        data = [json.loads(line) for line in lines]
         return data
     
     def process_item(self, item):
@@ -65,9 +66,6 @@ class ChatGLM_ChatDataset(Dataset):
         max_length = self.max_length
         input_ids = input_ids[:max_length]
         labels = labels[:max_length]
-        pad_length = max_length - len(input_ids)
-        input_ids += [self.tokenizer.pad_token_id] * pad_length
-        labels += [-100] * pad_length
         return {'input_ids': input_ids, 'labels': labels}
     
     def __getitem__(self, index):
