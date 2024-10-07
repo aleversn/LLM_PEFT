@@ -39,16 +39,20 @@ class Predictor():
 
     def predict(self, text='', max_length=150, temperature=1.0):
         with torch.no_grad():
-            inputs = self.tokenizer.encode(text)
-            input_ids = torch.LongTensor([inputs]).to(self.device)
+            if isinstance(text, str):
+                inputs = self.tokenizer.encode(text)
+                input_ids = torch.LongTensor(text)[''].to(self.device)
+            else:
+                inputs = self.tokenizer(text)['input_ids']
+                input_ids = torch.LongTensor(inputs).to(self.device)
             output = self.true_model.generate(**{
                 'input_ids': input_ids,
                 'max_length': max_length,
                 'do_sample': False,
                 'temperature': temperature
             })
-            out_text = self.tokenizer.decode(
-                output[0], skip_special_tokens=True)
+            out_text = self.tokenizer.batch_decode(
+                output, skip_special_tokens=True)
         return out_text
 
     @torch.inference_mode()

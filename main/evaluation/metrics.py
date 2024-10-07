@@ -90,9 +90,8 @@ def evaluate_all_metrics(tokenizer, reference, generated, intensive=False):
     bleu_1, bleu_2, bleu_3, bleu_4 = calculate_bleu_scores(reference_tokens, generated_tokens)
     
     # 计算 ROUGE 分数 (假设第一个参考句子为基准)
-    
-    rouge = Rouge(metrics=["rouge-1", "rouge-2", "rouge-3", "rouge-4", "rouge-l"])
     if intensive:
+        rouge = Rouge(metrics=["rouge-1", "rouge-2", "rouge-3", "rouge-4", "rouge-l"])
         scores = rouge.get_scores(' '.join(generated_intensive), ' '.join(reference_intensive))
         rouge_1 = scores[0]['rouge-1']['f']
         rouge_2 = scores[0]['rouge-2']['f']
@@ -106,7 +105,7 @@ def evaluate_all_metrics(tokenizer, reference, generated, intensive=False):
     meteor = calculate_meteor_score(reference, generated)
     
     # 计算 TER 分数 (假设第一个参考句子为基准)
-    ter = calculate_ter_score(reference_intensive, generated_intensive)
+    ter = calculate_ter_score(reference, generated)
     
     return {
         'BLEU-1': bleu_1,
@@ -145,7 +144,7 @@ def evaluate_generation(tokenizer, predictions, references, intensive=False, pri
         'METEOR': 0,
         'TER': 0
     }
-    for pred, ref in tqdm(zip(predictions, references)):
+    for pred, ref in tqdm(zip(predictions, references), total=len(predictions)):
         scores = evaluate_all_metrics(tokenizer, pred, ref, intensive)
         for metric, score in scores.items():
             results[metric] += score

@@ -112,7 +112,7 @@ class Trainer():
     def generate_with_rlhf(self, input_ids, query, num_beams=1, num_return_sequences=1, max_new_tokens=8):
         '''
         `params:`
-            - input_ids: [1, seq_len]
+            - input_ids: [batch_size, seq_len]
             - query: list, the user query content
             - num_beams: int, 3, 2 # set bigger if you have bigger compute memory
             - num_return_sequences: int, 3, 2 # set bigger if you have bigger compute memory
