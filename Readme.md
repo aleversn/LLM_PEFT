@@ -218,6 +218,8 @@ print(result[0])
 
 #### 验证集/测试集生成推理
 
+建议采用`Predictor`中的默认方法, 以便支持批量生成.
+
 ```python
 from main.evaluation.inferences import inference_with_data_path
 from main.predictor.chatglm_lora import Predictor
@@ -225,9 +227,9 @@ from main.predictor.chatglm_lora import Predictor
 pred = Predictor(model_from_pretrained='/home/lpc/models/chatglm3-6b/', resume_path='./save_model/ChatGLM_LoRA')
 
 def batcher(item):
-    return pred.chat(**item, max_length=1024)[0]
+    return pred(**item, max_length=1024, temperature=0, build_message=True)
 
-inference_with_data_path(data_path='YOUR_PATH', batcher=batcher, save_path='./outputs.txt')
+inference_with_data_path(data_path='YOUR_PATH', batcher=batcher, save_path='./outputs.txt', batch_size=4)
 ```
 
 你可以自行实现`batcher`仅需确保返回的是生成文本即可,
