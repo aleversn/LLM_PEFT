@@ -39,13 +39,14 @@ def inference_with_data_path(data_path, batcher, save_path, batch_size=1, skip=-
             
     return inference_with_data(format_data, batcher, save_path, batch_size, skip)
 
-def inference_with_data(data, batcher, save_path, batch_size=1, skip=-1):
+def inference_with_data(data, batcher, save_path=None, batch_size=1, skip=-1, yield_output=False):
     '''
     - `params`: `data`: list, data is the dataset to inference.
     - `params`: `batcher`: function, batcher is the function to batch the data.
     - `params`: `save_path`: str, save_path is the path to save the inference result.
     - `params`: `batch_size`: int, batch_size is the batch size of the inference.
     - `params`: `skip`: int, skip is the number of data to skip.
+    - `params`: `yield_output`: bool, yield_output is the flag to yield the output.
     - `return`: `result`: list, result is the inference result.
     '''
     save_dir = os.path.dirname(save_path)
@@ -64,10 +65,14 @@ def inference_with_data(data, batcher, save_path, batch_size=1, skip=-1):
         if isinstance(output, list):
             result.extend(output)
             for out in output:
-                with open(save_path, encoding='utf-8', mode='a') as f:
-                    f.write(json.dumps(out, ensure_ascii=False) + '\n')
+                if save_path is not None:
+                    with open(save_path, encoding='utf-8', mode='a') as f:
+                        f.write(json.dumps(out, ensure_ascii=False) + '\n')
         else:
             result.append(output)
-            with open(save_path, encoding='utf-8', mode='a') as f:
-                f.write(json.dumps(output, ensure_ascii=False) + '\n')
+            if save_path is not None:
+                with open(save_path, encoding='utf-8', mode='a') as f:
+                    f.write(json.dumps(output, ensure_ascii=False) + '\n')
+        if yield_output:
+            yield output
     return result
