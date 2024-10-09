@@ -49,9 +49,10 @@ def inference_with_data(data, batcher, save_path=None, batch_size=1, skip=-1, yi
     - `params`: `yield_output`: bool, yield_output is the flag to yield the output.
     - `return`: `result`: list, result is the inference result.
     '''
-    save_dir = os.path.dirname(save_path)
-    if not os.path.exists(save_dir):
-        os.makedirs(save_dir)
+    if save_path is not None:
+        save_dir = os.path.dirname(save_path)
+        if not os.path.exists(save_dir):
+            os.makedirs(save_dir)
     result = []
     selected_data = data[skip:] if skip > 0 else data
     num_batches = len(selected_data) // batch_size + (1 if len(selected_data) % batch_size != 0 else 0)
@@ -68,11 +69,28 @@ def inference_with_data(data, batcher, save_path=None, batch_size=1, skip=-1, yi
                 if save_path is not None:
                     with open(save_path, encoding='utf-8', mode='a') as f:
                         f.write(json.dumps(out, ensure_ascii=False) + '\n')
+            if yield_output:
+                format_output = []
+                for i in range(len(output)):
+                    format_output.append({
+                        'idx': idx * batch_size + i,
+                        'query': sample[i]['query'],
+                        'history': sample[i]['history'],
+                        'response': output[i]
+                    })
+                yield format_output
         else:
             result.append(output)
             if save_path is not None:
                 with open(save_path, encoding='utf-8', mode='a') as f:
                     f.write(json.dumps(output, ensure_ascii=False) + '\n')
-        if yield_output:
-            yield output
+            if yield_output:
+                format_output = {
+                    'idx': idx,
+                    'query': sample[0]['query'],
+                    'history': sample[0]['history'],
+                    'response': output
+                }
+                yield format_output
+        
     return result
