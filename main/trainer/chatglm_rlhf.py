@@ -102,70 +102,11 @@ class Trainer():
 
             train_iter = tqdm(train_loader)
             self.model.train()
+            self.critic_model.train()
 
             for it in train_iter:
                 is_rlhf = random.randint(0, 10) / 10 <= 0.4
-                if is_rlhf:
-                    it['input_ids'] = it['input_ids_without_last_turn']
-                    max_new_tokens = torch.max(it['last_input_len']).item()
-                    sequences, log_probs, gen_texts, logits = self.ppo.generate_with_rlhf(self.model, it["input_ids"], it["query"], num_beams=num_beams, num_return_sequences=num_return_sequences, max_new_tokens=max_new_tokens)
-                
-                else:
-                    max_new_tokens = torch.max(it['last_input_len']).item()
-                    sequences, log_probs, gen_texts, logits = self.ppo.generate_with_ft(self.model, it["input_ids"], it["last_assistant_content"], max_new_tokens)
-                
-                # compute reward for generated sequences
-                gold_answers = it["gold_answers"]
-                bad_answers = it["bad_answers"]
-                reward = []
-                for i in range(self.batch_size):
-                    if is_rlhf:
-                        b_gen_texts = gen_texts[i * num_return_sequences : (i + 1) * num_return_sequences]
-                    else:
-                        b_gen_texts = [gen_texts[i]]
-                    b_gold_answers = gold_answers[i]
-                    b_bad_answers = bad_answers[i]
-                    b_reward = self.reward_model(gen_texts=b_gen_texts, gold_answers=b_gold_answers, bad_answers=b_bad_answers).unsqueeze(1)
-                    reward.append(b_reward)
-                reward = torch.cat(reward, dim=0)
-                assert reward.shape == (len(gen_texts), 1), "need unsqueeze for next scatter_"
-                rewards = torch.zeros_like(sequences, dtype=reward.dtype)
-                pad_id = self.tokenizer.convert_tokens_to_ids("<pad>")
-                masks = (sequences!=pad_id).long()
-                final_position = (sequences[:,it['input_ids'].size(-1):] != pad_id).sum(dim=-1) + it['input_ids'].size(-1) - 1
-                index = final_position.unsqueeze(-1)
-                rewards.scatter_(dim=1, index=index, src=reward)
-                # 确保都放到values所在的device
-
-                torch.cuda.empty_cache()
-                
-                for ppo_epoch in range(ppo_epochs):
-                    # compute new log probs
-                    new_log_probs, _ = self.ppo.get_log_probs_with_input_ids(self.model, sequences, log_probs.shape[1])
-                    entropy = 0 # 暂时不需要熵的约束
-                    # compute value
-                    # 到奖励模型和值函数模型的输入可以是一样的都是生成的序列。
-                    # 生成序列同时包括state和next action
-                    # prepare input for critic model
-                    input_ids_critic = sequences
-                    values = self.critic_model(input_ids=input_ids_critic)
-                    # compute gae
-                    gae = self.ppo.gae_vectorize(values=values, rewards=rewards, masks=masks)
-                    advantages = gae[:, -log_probs.shape[-1]:]
-                    # 计算value的估计量的偏差作为actor loss
-                    # 以及ppo的actor_loss
-                    value_estimator_delta = advantages
-                    ratio = (new_log_probs - log_probs).exp()
-                    # print("reward",reward, "ratio:", ratio, sep="\n")
-                    if torch.isinf(ratio).any():
-                        break
-                    surr1 = ratio * advantages
-                    surr2 = torch.clamp(ratio, 1.0 - 0.2, 1.0 + 0.2) * advantages
-                    actor_loss  = - torch.min(surr1, surr2).mean()
-                    critic_loss = value_estimator_delta.square().mean()
-                    loss = 0.5 * (critic_loss + actor_loss) - 0.001 * entropy
-                    # optimize
-                    optimizer.zero_grad()
+                for loss, logits in self.ppo(is_rlhf, self.model, self.reward_model, self.critic_model, **it, num_beams=num_beams, num_return_sequences=num_return_sequences, ppo_epochs=ppo_epochs):
                     # loss.backward()
                     self.accelerate.backward(loss)
                     optimizer.step()
