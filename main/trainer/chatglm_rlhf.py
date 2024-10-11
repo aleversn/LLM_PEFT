@@ -16,6 +16,7 @@ from tqdm import tqdm
 from main.loader import AutoDataloader
 from main.models.chatglm_rlhf import CriticModel, RewardModel, PPO
 from main.analysis import Analysis
+import torch.distributed as dist
 from accelerate import Accelerator
 from accelerate.utils import DistributedDataParallelKwargs
 
@@ -105,7 +106,10 @@ class Trainer():
             self.critic_model.train()
 
             for it in train_iter:
-                is_rlhf = random.randint(0, 10) / 10 <= 0.4
+                is_rlhf = torch.tensor([random.randint(0, 10) / 10]).to(self.accelerate.device)
+                self.accelerate.wait_for_everyone()
+                dist.broadcast(is_rlhf, src=0)
+                is_rlhf = is_rlhf.item() <= 0.4
                 for loss, logits in self.ppo(is_rlhf, self.model, self.reward_model, self.critic_model, **it, num_beams=num_beams, num_return_sequences=num_return_sequences, ppo_epochs=ppo_epochs):
                     # loss.backward()
                     self.accelerate.backward(loss)
@@ -158,8 +162,8 @@ class Trainer():
         peft_save_path = os.path.join(save_dir, f'ChatGLM_{current_step}')
         if not os.path.exists(peft_save_path):
             os.makedirs(peft_save_path)
-        save_model = self.accelerate.unwrap_model(self.model)
-        save_model.save_pretrained(
+        actor_model = self.accelerate.unwrap_model(self.model)
+        actor_model.save_pretrained(
             peft_save_path,
             is_main_process=self.accelerate.is_main_process,
             save_function=self.accelerate.save,
@@ -167,7 +171,8 @@ class Trainer():
         critic_save_path = os.path.join(save_dir, f'Critic_{current_step}')
         if not os.path.exists(critic_save_path):
             os.makedirs(critic_save_path)
-        critic_linear = self.critic_model.output_linear
+        critic_model = self.accelerate.unwrap_model(self.critic_model)
+        critic_linear = critic_model.output_linear
         torch.save(critic_linear.state_dict(), os.path.join(critic_save_path, 'linear.pth'))
         self.analysis.append_model_record(current_step)
         return current_step   
