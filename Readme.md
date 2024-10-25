@@ -39,24 +39,24 @@ for response, history in model.stream_chat(tokenizer, "你的任务是什么?", 
 
 ```python
 import sys
-from main.predictor.chatglm import GPTPredict
+from main.predictor.chatglm import Predictor
 
-predictor = GPTPredict(model_name="ChatGLM2-6B", model_from_pretrained="model/chatglm3-6b")
+predictor = Predictor(model_name="ChatGLM2-6B", model_from_pretrained="model/chatglm3-6b")
 ```
 
 - 2.1 直接推理
 
 ```python
 res = predictor("你好?", history=[])
-print(res['data'])
+print(res)
 ```
 
 - 2.2 流式推理
 
 ```python
 history = []
-for res in predictor.predict_stream("你的任务是什么?", history=history):
-    sys.stdout.write('\r' + res['data'])
+for res in predictor.stream_chat("你的任务是什么?", history=history):
+    sys.stdout.write('\r' + res[0])
     sys.stdout.flush()
 ```
 
