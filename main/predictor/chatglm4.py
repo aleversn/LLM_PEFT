@@ -28,7 +28,7 @@ class Predictor():
         self.tokenizer = AutoTokenizer.from_pretrained(
             self.model_from_pretrained, trust_remote_code=True)
         self.model = AutoModel.from_pretrained(
-            self.model_from_pretrained, trust_remote_code=True).half().cuda()
+            self.model_from_pretrained, trust_remote_code=True).cuda()
         self.model_to_device(gpu=self.num_gpus)
         self.model = self.model.eval()
 
@@ -41,21 +41,24 @@ class Predictor():
         self.true_model = self.model.module if hasattr(
             self.model, 'module') else self.model
     
-    def build_chat_input(self, query, history=None, role="user"):
+    def process_model_outputs(self, inputs, outputs, tokenizer):
+        responses = []
+        for input_ids, output_ids in zip(inputs.input_ids, outputs):
+            response = tokenizer.decode(output_ids[len(input_ids):], skip_special_tokens=True).strip()
+            responses.append(response)
+        return responses
+    
+    def build_chat_input(self, query:str, history=None):
         if history is None:
             history = []
-        input_ids = []
-        for item in history:
-            content = item["content"]
-            if item["role"] == "system" and "tools" in item:
-                content = content + "\n" + json.dumps(item["tools"], indent=4, ensure_ascii=False)
-            input_ids.extend(self.tokenizer.build_single_message(item["role"], item.get("metadata", ""), content))
-        input_ids.extend(self.tokenizer.build_single_message(role, "", query))
-        input_ids.extend([self.tokenizer.get_command("<|assistant|>")])
-        return input_ids
+        history.append(query)
+        max_input_tokens = 0
+        new_batch_input = self.tokenizer.apply_chat_template(history, add_generation_prompt=True, tokenize=False)
+        max_input_tokens = max(max_input_tokens, len(new_batch_input))
+        return new_batch_input, max_input_tokens
 
-    def predict(self, query: str | list = '', history: List = None, max_length=512, temperature=1.0, build_message=False):
-        if isinstance(query, str):
+    def predict(self, query: str | list = '', history: List = None, max_length=512, max_new_tokens=512, num_beams:int=1, top_p: float = 0.8, temperature=1.0, do_sample: bool = False, build_message=False):
+        if not isinstance(query, list):
             query = [query]
             history = [history] if history is not None else None
         with torch.no_grad():
@@ -63,33 +66,38 @@ class Predictor():
                 inputs = []
                 batch_max_len = 0
                 for i, t in enumerate(query):
+                    if isinstance(t, str):
+                        t = {'role': 'user', 'content': t}
                     if history is not None and len(history) > 0:
                         h_unit = history[i]
-                        t = self.build_chat_input(t, h_unit)
                     else:
-                        t = self.tokenizer.build_single_message("user", "", t)
-                        t.extend([self.tokenizer.get_command("<|assistant|>")])
-                    if batch_max_len < len(t):
-                        batch_max_len = len(t)
+                        h_unit = []
+                    t, max_input_tokens = self.build_chat_input(t, h_unit)
+                    if batch_max_len < max_input_tokens:
+                        batch_max_len = max_input_tokens
                     inputs.append(t)
-                for idx, t in enumerate(inputs):
-                    remain = batch_max_len - len(t)
-                    inputs[idx] = [self.tokenizer.pad_token_id] * remain + t
             else:
-                inputs = self.tokenizer(
-                        query, max_length=max_length, padding=True, truncation=True)['input_ids']
-            input_ids = torch.LongTensor(inputs).to(self.device)
-            output = self.true_model.generate(**{
-                'input_ids': input_ids,
-                'max_length': max_length,
-                'do_sample': False,
-                'temperature': temperature
+                inputs = query
+                batch_max_len = 0
+                for i in range(len(query)):
+                    if len(query[i]) > batch_max_len:
+                        batch_max_len = len(query[i])
+            batched_inputs = self.tokenizer(
+                inputs,
+                return_tensors="pt",
+                padding="max_length",
+                truncation=True,
+                max_length=batch_max_len).to(self.device)
+            batched_outputs = self.true_model.generate(**batched_inputs, **{
+                'max_new_tokens': max_new_tokens,
+                'num_beams': num_beams,
+                'do_sample': do_sample,
+                'top_p': top_p,
+                "temperature": temperature,
+                "eos_token_id": self.true_model.config.eos_token_id
             })
-            out_text = self.tokenizer.batch_decode(
-                output, skip_special_tokens=True)
-            if build_message:
-                out_text = [self.true_model.process_response(t, [])[0] for t in out_text]
-        return out_text
+            batched_response = self.process_model_outputs(batched_inputs, batched_outputs, self.tokenizer)
+        return batched_response
 
     @torch.inference_mode()
     def chat(self, query: str, history: List[Tuple[str, str]] = None, role: str = "user",
@@ -106,5 +114,5 @@ class Predictor():
         for result in self.true_model.stream_chat(self.tokenizer, query, history, role, past_key_values, max_length, do_sample, top_p, temperature, logits_processor, return_past_key_values, **kwargs):
             yield result
 
-    def __call__(self, query: str | list = '', history: List = None, max_length=512, temperature=1.0, build_message=False):
-        return self.predict(query=query, history=history, max_length=max_length, temperature=temperature, build_message=build_message)
+    def __call__(self, query: str | list = '', history: List = None, max_length=512, max_new_tokens=512, num_beams:int=1, top_p: float = 0.8, temperature=1.0, do_sample: bool = False, build_message=False):
+        return self.predict(query, history, max_length, max_new_tokens, num_beams, top_p, temperature, do_sample, build_message)

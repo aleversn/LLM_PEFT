@@ -60,7 +60,7 @@ class Predictor():
                 inputs = []
                 batch_max_len = 0
                 for i, t in enumerate(query):
-                    if history is not None:
+                    if history is not None and len(history) > 0:
                         h_unit = history[i]
                         t = self.build_chat_input(t, h_unit)
                     else:
