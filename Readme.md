@@ -37,6 +37,9 @@ for response, history in model.stream_chat(tokenizer, "你的任务是什么?", 
 
 2. 项目封装方法
 
+- ChatGLM <= 3: `main.predictor.chatglm`
+- Else: `main.predictor.llm`
+
 ```python
 import sys
 from main.predictor.chatglm import Predictor
@@ -61,6 +64,9 @@ for res in predictor.stream_chat("你的任务是什么?", history=history):
 ```
 
 3. PEFT模型推理
+
+- ChatGLM <= 3: `main.predictor.chatglm_lora`
+- Else: `main.predictor.llm_lora`
 
 ```python
 from main.predictor.chatglm_lora import Predictor
