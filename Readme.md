@@ -87,7 +87,7 @@ print(result[0])
 #### PEFT微调训练
 
 ```python
-from main.trainer.chatglm_lora import Trainer
+from main.trainer.llm_lora import Trainer
 from transformers import AutoTokenizer, AutoConfig
 
 tokenizer = AutoTokenizer.from_pretrained("model/chatglm3-6b", trust_remote_code=True)
@@ -95,6 +95,7 @@ config = AutoConfig.from_pretrained("model/chatglm3-6b", trust_remote_code=True)
 trainer = Trainer(tokenizer=tokenizer, config=config, from_pretrained='./model/chatglm3-6b', loader_name='ChatGLM_Chat', data_path='<dataset_name></dataset_name>', max_length=3600, batch_size=1, task_name='<dataset_name>')
 ```
 
+- loader_name: 数据集加载器, 其中`ChatGLM <= 3`为`ChatGLM_Chat`, 其余均使用`LLM_Chat`.
 - `<dataset_name>`: 表示选用的训练数据集类型, 请创建`./data/present.json`文件并自定义数据集路径, 例如:
 
 `present.json`

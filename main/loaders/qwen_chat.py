@@ -8,7 +8,7 @@ from tqdm import tqdm
 from torch.utils.data import Dataset, DataLoader
 from transformers import PretrainedConfig, PreTrainedTokenizer
 
-class QianwenChatDataset(Dataset):
+class QwenChatDataset(Dataset):
 
     config: PretrainedConfig
     tokenizer: PreTrainedTokenizer

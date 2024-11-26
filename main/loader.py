@@ -2,9 +2,10 @@ import os
 import json
 import random
 from torch.utils.data import TensorDataset, DataLoader, Dataset
-from main.loaders.chatglm_std import ChatGLM_LoRADataset
+from main.loaders.llm_pure_text import LLMPureTextDataset
 from main.loaders.chatglm_chat import ChatGLM_ChatDataset
-from main.loaders.qianwen_chat import QianwenChatDataset
+from main.loaders.qwen_chat import QwenChatDataset
+from main.loaders.llm_chat import LLMChatDataset
 from main.loaders.chatglm_rlhf import ChatGLM_RLHFDataset
 import torch
 
@@ -51,19 +52,19 @@ class AutoDataloader():
     max_length: int; the length of the padding
     '''
 
-    def __init__(self, tokenizer, config, loader_name='ChatGLM_LoRA', data_path="Boss", data_present_path="./data/present.json", max_length=50):
+    def __init__(self, tokenizer, config, loader_name='LLM_Chat', data_path="Boss", data_present_path="./data/present.json", max_length=50):
         self.tokenizer = tokenizer
         self.loader_name = loader_name
         self.max_length = max_length
         self.data_present = self.get_data_present(data_present_path)
         self.data_path = self.data_present[data_path] if data_path in self.data_present else data_path
-        if loader_name == 'ChatGLM_LoRA':
-            self.train_set = ChatGLM_LoRADataset(
+        if loader_name == 'LLM_Pure':
+            self.train_set = LLMPureTextDataset(
                 tokenizer, config, self.data_path['train'], max_length=self.max_length, do_shuffle=True)
-            self.eval_set = ChatGLM_LoRADataset(
+            self.eval_set = LLMPureTextDataset(
                 tokenizer, config, self.data_path['dev'], max_length=self.max_length, do_shuffle=False)
             if 'test' in self.data_path:
-                self.test_set = ChatGLM_LoRADataset(
+                self.test_set = LLMPureTextDataset(
                     tokenizer, config, self.data_path['test'], max_length=self.max_length, do_shuffle=False)
         elif loader_name == 'ChatGLM_Chat':
             self.train_set = ChatGLM_ChatDataset(
@@ -73,6 +74,22 @@ class AutoDataloader():
             if 'test' in self.data_path:
                 self.test_set = ChatGLM_ChatDataset(
                     tokenizer, config, self.data_path['test'], max_length=self.max_length, do_shuffle=False)
+        elif loader_name == 'Qwen_Chat':
+            self.train_set = QwenChatDataset(
+                tokenizer, config, self.data_path['train'], max_length=self.max_length, do_shuffle=True)
+            self.eval_set = QwenChatDataset(
+                tokenizer, config, self.data_path['dev'], max_length=self.max_length, do_shuffle=False)
+            if 'test' in self.data_path:
+                self.test_set = QwenChatDataset(
+                    tokenizer, config, self.data_path['test'], max_length=self.max_length, do_shuffle=False)
+        elif loader_name == 'LLM_Chat':
+            self.train_set = LLMChatDataset(
+                tokenizer, config, self.data_path['train'], max_length=self.max_length, do_shuffle=True)
+            self.eval_set = LLMChatDataset(
+                tokenizer, config, self.data_path['dev'], max_length=self.max_length, do_shuffle=False)
+            if 'test' in self.data_path:
+                self.test_set = LLMChatDataset(
+                    tokenizer, config, self.data_path['test'], max_length=self.max_length, do_shuffle=False)
         elif loader_name == 'ChatGLM_RLHF':
             self.train_set = ChatGLM_RLHFDataset(
                 tokenizer, config, self.data_path['train'], max_length=self.max_length, do_shuffle=True)
@@ -80,14 +97,6 @@ class AutoDataloader():
                 tokenizer, config, self.data_path['dev'], max_length=self.max_length, do_shuffle=False)
             if 'test' in self.data_path:
                 self.test_set = ChatGLM_RLHFDataset(
-                    tokenizer, config, self.data_path['test'], max_length=self.max_length, do_shuffle=False)
-        elif loader_name == 'Qianwen_Chat':
-            self.train_set = QianwenChatDataset(
-                tokenizer, config, self.data_path['train'], max_length=self.max_length, do_shuffle=True)
-            self.eval_set = QianwenChatDataset(
-                tokenizer, config, self.data_path['dev'], max_length=self.max_length, do_shuffle=False)
-            if 'test' in self.data_path:
-                self.test_set = QianwenChatDataset(
                     tokenizer, config, self.data_path['test'], max_length=self.max_length, do_shuffle=False)
 
     def get_data_present(self, present_path):

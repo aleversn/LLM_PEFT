@@ -1,4 +1,4 @@
-from main.trainer.chatglm_lora import Trainer
+from main.trainer.llm_lora import Trainer
 from transformers import AutoTokenizer, AutoConfig
 
 tokenizer = AutoTokenizer.from_pretrained("model/chatglm3-6b", trust_remote_code=True)

@@ -1,36 +1,55 @@
+from transformers import AutoModel
+from transformers import AutoTokenizer, AutoConfig, LlamaForCausalLM, AutoModelForCausalLM
+from peft import LoraConfig, TaskType, PeftModel, PeftModelForCausalLM
+from typing import Tuple, List
 import json
 import torch
-from transformers import AutoTokenizer, AutoModel
-from typing import Tuple, List
 
 
 class Predictor():
+    true_model: PeftModelForCausalLM
 
     def __init__(self,
                  num_gpus: list = [0],
                  model_from_pretrained: str = None,
-                 **args
+                 resume_path: str = None,
+                 lora_r=16, lora_alpha=32, lora_dropout=0.1,
                  ):
-        '''
-        Predictor: ChatGLM预测器 (ChatGLM predictor)
-
-        ### Args:
-
-        `num_gpus`: 使用的GPU编号列表 (the list of GPU numbers)
-
-        `model_config_file_name`: bert配置文件名 (bert config file name)
-        '''
-        self.num_gpus = num_gpus
-        self.model_from_pretrained = model_from_pretrained
-        self.model_init()
-
-    def model_init(self):
+        peft_config = LoraConfig(
+            task_type=TaskType.CAUSAL_LM,
+            inference_mode=False,
+            r=lora_r,
+            lora_alpha=lora_alpha,
+            lora_dropout=lora_dropout,
+        )
+        self.config = AutoConfig.from_pretrained(
+            model_from_pretrained, trust_remote_code=True)
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self.model_from_pretrained, trust_remote_code=True)
-        self.model = AutoModel.from_pretrained(
-            self.model_from_pretrained, trust_remote_code=True).cuda()
-        self.model_to_device(gpu=self.num_gpus)
-        self.model = self.model.eval()
+            model_from_pretrained, trust_remote_code=True)
+        
+        if self.config.model_type == 'chatglm':
+            self.model = AutoModel.from_pretrained(
+                self.model_from_pretrained, trust_remote_code=True).to(torch.bfloat16)
+            self.eos_token_id = self.config.eos_token_id
+        elif self.config.model_type == 'llama':
+            self.tokenizer.pad_token = self.tokenizer.eos_token
+            self.model = LlamaForCausalLM.from_pretrained(
+                self.model_from_pretrained, trust_remote_code=True).to(torch.bfloat16)
+            terminators = [
+                self.tokenizer.eos_token_id,
+                self.tokenizer.convert_tokens_to_ids("<|eot_id|>")
+            ]
+            self.eos_token_id = terminators
+        elif self.config.model_type == 'qwen':
+            self.model = AutoModelForCausalLM.from_pretrained(
+                self.model_from_pretrained, torch_dtype="auto", device_map="auto", trust_remote_code=True)
+        elif self.config.model_type == 'qwen2':
+            self.model = AutoModelForCausalLM.from_pretrained(
+                self.model_from_pretrained, torch_dtype="auto", device_map="auto", trust_remote_code=True)
+        
+        self.model = PeftModel.from_pretrained(
+            self.model, resume_path, config=peft_config)
+        self.model_to_device(gpu=num_gpus)
 
     def model_to_device(self, gpu=[0]):
         self.device = torch.device(
@@ -43,7 +62,7 @@ class Predictor():
     
     def process_model_outputs(self, inputs, outputs, tokenizer):
         responses = []
-        for input_ids, output_ids in zip(inputs.input_ids, outputs):
+        for input_ids, output_ids in zip(inputs['input_ids'], outputs):
             response = tokenizer.decode(output_ids[len(input_ids):], skip_special_tokens=True).strip()
             responses.append(response)
         return responses
@@ -85,34 +104,20 @@ class Predictor():
             batched_inputs = self.tokenizer(
                 inputs,
                 return_tensors="pt",
-                padding="max_length",
-                truncation=True,
-                max_length=batch_max_len).to(self.device)
+                padding=True,
+                truncation=True).to(self.device)
+            if self.config.model_type == 'llama':
+                batched_inputs = batched_inputs.data
             batched_outputs = self.true_model.generate(**batched_inputs, **{
                 'max_new_tokens': max_new_tokens,
                 'num_beams': num_beams,
                 'do_sample': do_sample,
                 'top_p': top_p,
                 "temperature": temperature,
-                "eos_token_id": self.true_model.config.eos_token_id
+                "eos_token_id": self.eos_token_id
             })
             batched_response = self.process_model_outputs(batched_inputs, batched_outputs, self.tokenizer)
         return batched_response
-
-    @torch.inference_mode()
-    def chat(self, query: str, history: List[Tuple[str, str]] = None, role: str = "user",
-             max_length: int = 8192, num_beams=1, do_sample=True, top_p=0.8, temperature=0.8, logits_processor=None,
-             **kwargs):
-        response, history = self.true_model.chat(
-            self.tokenizer, query, history, role, max_length, num_beams, do_sample, top_p, temperature, logits_processor, **kwargs)
-        return response, history
-
-    @torch.inference_mode()
-    def stream_chat(self, query: str, history: List[Tuple[str, str]] = None, role: str = "user",
-                    past_key_values=None, max_length: int = 8192, do_sample=True, top_p=0.8, temperature=0.8,
-                    logits_processor=None, return_past_key_values=False, **kwargs):
-        for result in self.true_model.stream_chat(self.tokenizer, query, history, role, past_key_values, max_length, do_sample, top_p, temperature, logits_processor, return_past_key_values, **kwargs):
-            yield result
 
     def __call__(self, query: str | list = '', history: List = None, max_length=512, max_new_tokens=512, num_beams:int=1, top_p: float = 0.8, temperature=1.0, do_sample: bool = False, build_message=False):
         return self.predict(query, history, max_length, max_new_tokens, num_beams, top_p, temperature, do_sample, build_message)
