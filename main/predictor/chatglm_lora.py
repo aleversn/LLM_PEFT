@@ -51,7 +51,7 @@ class Predictor():
         input_ids.extend([self.tokenizer.get_command("<|assistant|>")])
         return input_ids
 
-    def predict(self, query: str | list = '', history: List = None, max_length=512, temperature=1.0, build_message=False):
+    def predict(self, query: str | list = '', history: List = None, max_new_tokens=512, num_beams:int=1, top_p: float = 0.8, temperature=1.0, do_sample: bool = False, build_message=False):
         if isinstance(query, str):
             query = [query]
             history = [history] if history is not None else None
@@ -74,13 +74,16 @@ class Predictor():
                     inputs[idx] = [self.tokenizer.pad_token_id] * remain + t
             else:
                 inputs = self.tokenizer(
-                        query, max_length=max_length, padding=True, truncation=True)['input_ids']
+                        query, padding=True, truncation=True)['input_ids']
             input_ids = torch.LongTensor(inputs).to(self.device)
             output = self.true_model.generate(**{
                 'input_ids': input_ids,
-                'max_length': max_length,
-                'do_sample': False,
-                'temperature': temperature
+                'max_new_tokens': max_new_tokens,
+                'num_beams': num_beams,
+                'do_sample': do_sample,
+                'top_p': top_p,
+                "temperature": temperature,
+                'do_sample': False
             })
             out_text = self.tokenizer.batch_decode(
                 output, skip_special_tokens=True)
@@ -103,5 +106,5 @@ class Predictor():
         for result in self.true_model.stream_chat(self.tokenizer, query, history, role, past_key_values, max_length, do_sample, top_p, temperature, logits_processor, return_past_key_values, **kwargs):
             yield result
 
-    def __call__(self, query: str | list = '', history: List = None, max_length=512, temperature=1.0, build_message=False):
-        return self.predict(query=query, history=history, max_length=max_length, temperature=temperature, build_message=build_message)
+    def __call__(self, query: str | list = '', history: List = None, max_new_tokens=512, num_beams:int=1, top_p: float = 0.8, temperature=1.0, do_sample: bool = False, build_message=False):
+        return self.predict(query=query, history=history, max_new_tokens=max_new_tokens, num_beams=num_beams, top_p=top_p, temperature=temperature, do_sample=do_sample, build_message=build_message)
