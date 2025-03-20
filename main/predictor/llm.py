@@ -46,6 +46,10 @@ class Predictor():
             self.model = AutoModelForCausalLM.from_pretrained(
                 self.model_from_pretrained, torch_dtype="auto", device_map="auto", trust_remote_code=True)
         elif self.config.model_type == 'qwen2':
+            if hasattr(self.config, 'eos_token_id'):
+                self.eos_token_id = self.config.eos_token_id
+            if hasattr(self.config, 'bos_token_id'):
+                self.bos_token_id = self.config.bos_token_id
             self.model = AutoModelForCausalLM.from_pretrained(
                 self.model_from_pretrained, torch_dtype="auto", device_map="auto", trust_remote_code=True)
         self.model_to_device(gpu=self.num_gpus)
