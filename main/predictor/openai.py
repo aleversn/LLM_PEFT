@@ -11,8 +11,9 @@ NOT_GIVEN = NotGiven()
 class Predictor():
 
     def __init__(self,
-                 organization,
-                 api_key,
+                 organization=None,
+                 api_key=None,
+                 base_url=None,
                  **args
                  ):
         '''
@@ -27,7 +28,8 @@ class Predictor():
 
         self.organization = organization
         self.api_key = api_key
-        self.client = OpenAI(organization=self.organization, api_key=self.api_key)
+        self.base_url = base_url
+        self.client = OpenAI(organization=self.organization, api_key=self.api_key, base_url=self.base_url)
     
 
     def predict(self, query: str = '', history: List = None, model: str = 'gpt-4o-mini', max_length=NOT_GIVEN, max_new_tokens=NOT_GIVEN, top_p: float = NOT_GIVEN, temperature=NOT_GIVEN):
@@ -41,7 +43,8 @@ class Predictor():
             max_tokens=max_length,
             max_completion_tokens=max_new_tokens,
             temperature=temperature,
-            top_p=top_p
+            top_p=top_p,
+            stream=False
         )
 
         message = completion.choices[0].message.content
