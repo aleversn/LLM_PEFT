@@ -33,6 +33,7 @@ class Predictor():
             self.model = AutoModel.from_pretrained(
                 self.model_from_pretrained, trust_remote_code=True).to(torch.bfloat16)
             self.eos_token_id = self.config.eos_token_id
+            self.model_to_device(gpu=self.num_gpus)
         elif self.config.model_type == 'llama':
             self.tokenizer.pad_token = self.tokenizer.eos_token
             self.model = LlamaForCausalLM.from_pretrained(
@@ -42,9 +43,11 @@ class Predictor():
                 self.tokenizer.convert_tokens_to_ids("<|eot_id|>")
             ]
             self.eos_token_id = terminators
+            self.model_to_device(gpu=self.num_gpus)
         elif self.config.model_type == 'qwen':
             self.model = AutoModelForCausalLM.from_pretrained(
                 self.model_from_pretrained, torch_dtype="auto", device_map="auto", trust_remote_code=True)
+            self.model_to_device(gpu=self.num_gpus)
         elif self.config.model_type == 'qwen2':
             if hasattr(self.config, 'eos_token_id'):
                 self.eos_token_id = self.config.eos_token_id
@@ -52,8 +55,22 @@ class Predictor():
                 self.bos_token_id = self.config.bos_token_id
             self.model = AutoModelForCausalLM.from_pretrained(
                 self.model_from_pretrained, torch_dtype="auto", device_map="auto", trust_remote_code=True)
-        self.model_to_device(gpu=self.num_gpus)
+            self.model_to_device(gpu=self.num_gpus)
+        elif self.config.model_type == "mixtral":
+            # The parameters of model are 45B. So some parameters are currently offline on the CPU.
+            # see href: https://huggingface.co/mistralai/Mixtral-8x7B-Instruct-v0.1/discussions/106
+            self.tokenizer.pad_token = self.tokenizer.eos_token
+            self.eos_token_id = self.config.eos_token_id
+            self.bos_token_id = self.config.bos_token_id
+            self.model =  AutoModelForCausalLM.from_pretrained(self.model_from_pretrained, device_map="auto",trust_remote_code=True)
+            self.__model_init()
         self.model = self.model.eval()
+
+    def __model_init(self):
+        self.device = torch.device(
+            "cuda:0" if torch.cuda.is_available() else "cpu")
+        self.true_model = self.model.module if hasattr(
+            self.model, 'module') else self.model
 
     def model_to_device(self, gpu=[0]):
         self.device = torch.device(

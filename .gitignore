@@ -6,3 +6,6 @@ save_model/
 data_record/
 data/
 chroma_data/
+
+datasets
+datasets*

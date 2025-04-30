@@ -1,0 +1,1 @@
+python predict_scores.math.py --llm_name mixtral --save_type_name mixtral --model_from_pretrained mistralai/Mixtral-8x7B-Instruct-v0.1
