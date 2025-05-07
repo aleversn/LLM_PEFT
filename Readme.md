@@ -4,9 +4,36 @@
 
 安装环境
 
+- Llama3, GLM4, Qwen2
+
+```bash
+pip install protobuf transformers>=4.44.1 cpm_kernels torch>=2.0 gradio mdtex2html sentencepiece accelerate
+```
+
+- GLM3
+
 ```bash
 pip install protobuf transformers==4.30.2 cpm_kernels torch>=2.0 gradio mdtex2html sentencepiece accelerate
 ```
+
+- vLLM
+
+- 使用`vLLM`
+
+```bash
+# (Recommended) Create a new conda environment.
+conda create -n vllm python=3.12 -y
+conda activate vllm
+```
+
+要求CUDA >= 12.1
+
+```bash
+# Install vLLM with CUDA 12.6.
+pip install vllm # If you are using pip.
+```
+
+其他情况请参考官网安装[vLLM](https://docs.vllm.ai/en/latest/getting_started/installation/gpu.html)
 
 #### 推理
 
@@ -77,7 +104,7 @@ pred = Predictor(model_from_pretrained='./model/chatglm3-6b', resume_path='./sav
 - 3.1 直接推理
 
 ```python
-result = pred('采购人委托采购代理机构代理采购项目，发布招标公告后，有权更换采购代理机构吗?', max_length=512)
+result = pred('采购人委托采购代理机构代理采购项目，发布招标公告后，有权更换采购代理机构吗?', max_new_tokens=512)
 print(result)
 ```
 
@@ -85,9 +112,22 @@ print(result)
 
 ```python
 history = []
-result = pred.chat('采购人委托采购代理机构代理采购项目，发布招标公告后，有权更换采购代理机构吗?', max_length=3000, history=history)
+result = pred.chat('采购人委托采购代理机构代理采购项目，发布招标公告后，有权更换采购代理机构吗?', max_new_tokens=3000, history=history)
 history = result[1]
 print(result[0])
+```
+
+4. vLLM推理
+
+```python
+from main.predictor.vllm import Predictor
+
+pred = Predictor(model_from_pretrained='Qwen/Qwen3-8B')
+```
+
+```python
+result = pred('采购人委托采购代理机构代理采购项目，发布招标公告后，有权更换采购代理机构吗?', max_new_tokens=512)
+print(result)
 ```
 
 #### PEFT微调训练
@@ -98,7 +138,7 @@ from transformers import AutoTokenizer, AutoConfig
 
 tokenizer = AutoTokenizer.from_pretrained("model/chatglm3-6b", trust_remote_code=True)
 config = AutoConfig.from_pretrained("model/chatglm3-6b", trust_remote_code=True)
-trainer = Trainer(tokenizer=tokenizer, config=config, from_pretrained='./model/chatglm3-6b', loader_name='ChatGLM_Chat', data_path='<dataset_name></dataset_name>', max_length=3600, batch_size=1, task_name='<dataset_name>')
+trainer = Trainer(tokenizer=tokenizer, config=config, from_pretrained='./model/chatglm3-6b', loader_name='ChatGLM_Chat', data_path='<dataset_name></dataset_name>', max_new_tokens=3600, batch_size=1, task_name='<dataset_name>')
 ```
 
 - loader_name: 数据集加载器, 其中`ChatGLM <= 3`为`ChatGLM_Chat`, 其余均使用`LLM_Chat`.
@@ -155,7 +195,7 @@ from transformers import AutoTokenizer, AutoConfig
 
 tokenizer = AutoTokenizer.from_pretrained("/home/lpc/models/chatglm3-6b/", trust_remote_code=True)
 config = AutoConfig.from_pretrained("/home/lpc/models/chatglm3-6b/", trust_remote_code=True)
-trainer = Trainer(tokenizer=tokenizer, config=config, from_pretrained='/home/lpc/models/chatglm3-6b/', reward_from_pretrained='/home/lpc/models/text2vec-base-chinese/', loader_name='ChatGLM_RLHF', data_path='ID', max_length=1200, batch_size=2, task_name='ID')
+trainer = Trainer(tokenizer=tokenizer, config=config, from_pretrained='/home/lpc/models/chatglm3-6b/', reward_from_pretrained='/home/lpc/models/text2vec-base-chinese/', loader_name='ChatGLM_RLHF', data_path='ID', max_new_tokens=1200, batch_size=2, task_name='ID')
 
 for i in trainer(num_epochs=5):
     a = i
@@ -234,7 +274,7 @@ from main.predictor.chatglm_lora import Predictor
 pred = Predictor(model_from_pretrained='/home/lpc/models/chatglm3-6b/', resume_path='./save_model/ChatGLM_LoRA')
 
 def batcher(item):
-    return pred(**item, max_length=1024, temperature=0, build_message=True)
+    return pred(**item, max_new_tokens=1024, temperature=0, build_message=True)
 
 inference_with_data_path(data_path='YOUR_PATH', batcher=batcher, save_path='./outputs.txt', batch_size=4)
 ```

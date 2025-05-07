@@ -29,6 +29,10 @@ class Predictor():
             self.model_from_pretrained, trust_remote_code=True)
         self.tokenizer = AutoTokenizer.from_pretrained(
             self.model_from_pretrained, padding_side="left", trust_remote_code=True)
+        if hasattr(self.config, 'eos_token_id'):
+            self.eos_token_id = [self.config.eos_token_id]
+        if hasattr(self.config, 'bos_token_id'):
+            self.bos_token_id = [self.config.bos_token_id]
         if self.config.model_type == 'chatglm':
             self.model = AutoModel.from_pretrained(
                 self.model_from_pretrained, trust_remote_code=True).to(torch.bfloat16)
@@ -41,17 +45,25 @@ class Predictor():
                 self.tokenizer.eos_token_id,
                 self.tokenizer.convert_tokens_to_ids("<|eot_id|>")
             ]
-            self.eos_token_id = terminators
+            if not hasattr(self, 'eos_token_id'):
+                self.eos_token_id = []
+            for t in terminators:
+                if t is not None:
+                    self.eos_token_id.append(t)
         elif self.config.model_type == 'qwen':
             self.model = AutoModelForCausalLM.from_pretrained(
                 self.model_from_pretrained, torch_dtype="auto", device_map="auto", trust_remote_code=True)
         elif self.config.model_type == 'qwen2':
-            if hasattr(self.config, 'eos_token_id'):
-                self.eos_token_id = self.config.eos_token_id
-            if hasattr(self.config, 'bos_token_id'):
-                self.bos_token_id = self.config.bos_token_id
             self.model = AutoModelForCausalLM.from_pretrained(
                 self.model_from_pretrained, torch_dtype="auto", device_map="auto", trust_remote_code=True)
+        elif self.config.model_type == "mimo":
+            self.eos_token_id = self.config.eos_token_id
+            self.bos_token_id = self.config.bos_token_id
+            self.model =  AutoModelForCausalLM.from_pretrained(self.model_from_pretrained, device_map="auto",trust_remote_code=True)
+        elif self.config.model_type == "tinyr1":
+            self.eos_token_id = self.config.eos_token_id
+            self.bos_token_id = self.config.bos_token_id
+            self.model =  AutoModelForCausalLM.from_pretrained(self.model_from_pretrained, device_map="auto",trust_remote_code=True)
         self.model_to_device(gpu=self.num_gpus)
         self.model = self.model.eval()
 
@@ -80,7 +92,7 @@ class Predictor():
         max_input_tokens = max(max_input_tokens, len(new_batch_input))
         return new_batch_input, max_input_tokens
 
-    def predict(self, query: str | list = '', history: List = None, max_length=512, max_new_tokens=512, num_beams:int=1, top_p: float = 0.8, temperature=1.0, do_sample: bool = False, build_message=False):
+    def predict(self, query: str | list = '', history: List = None, max_length=512, max_new_tokens=512, num_beams:int=1, top_p: float = 0.8, temperature=1.0, do_sample: bool = False, build_message=True):
         if not isinstance(query, list):
             query = [query]
             history = [history] if history is not None else None
@@ -123,5 +135,5 @@ class Predictor():
             batched_response = self.process_model_outputs(batched_inputs, batched_outputs, self.tokenizer)
         return batched_response
 
-    def __call__(self, query: str | list = '', history: List = None, max_length=512, max_new_tokens=512, num_beams:int=1, top_p: float = 0.8, temperature=1.0, do_sample: bool = False, build_message=False):
+    def __call__(self, query: str | list = '', history: List = None, max_length=512, max_new_tokens=512, num_beams:int=1, top_p: float = 0.8, temperature=1.0, do_sample: bool = False, build_message=True):
         return self.predict(query, history, max_length, max_new_tokens, num_beams, top_p, temperature, do_sample, build_message)
