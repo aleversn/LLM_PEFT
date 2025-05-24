@@ -22,10 +22,12 @@ class Predictor():
             lora_alpha=lora_alpha,
             lora_dropout=lora_dropout,
         )
+        self.model_from_pretrained = model_from_pretrained
+        
         self.config = AutoConfig.from_pretrained(
-            model_from_pretrained, trust_remote_code=True)
+            self.model_from_pretrained, trust_remote_code=True)
         self.tokenizer = AutoTokenizer.from_pretrained(
-            model_from_pretrained, trust_remote_code=True)
+        self.model_from_pretrained, padding_side="left", trust_remote_code=True)
         
         if self.config.model_type == 'chatglm':
             self.model = AutoModel.from_pretrained(
@@ -44,6 +46,10 @@ class Predictor():
             self.model = AutoModelForCausalLM.from_pretrained(
                 self.model_from_pretrained, torch_dtype="auto", device_map="auto", trust_remote_code=True)
         elif self.config.model_type == 'qwen2':
+            if hasattr(self.config, 'eos_token_id'):
+                self.eos_token_id = self.config.eos_token_id
+            if hasattr(self.config, 'bos_token_id'):
+                self.bos_token_id = self.config.bos_token_id
             self.model = AutoModelForCausalLM.from_pretrained(
                 self.model_from_pretrained, torch_dtype="auto", device_map="auto", trust_remote_code=True)
         
