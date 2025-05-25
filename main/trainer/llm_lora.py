@@ -64,11 +64,11 @@ class Trainer():
         elif self.config.model_type == 'qwen':
             target_modules=["c_attn", "c_proj", "w1", "w2"]
             self.model = AutoModelForCausalLM.from_pretrained(
-                self.from_pretrained, torch_dtype="auto", device_map="auto", trust_remote_code=True)
+                self.from_pretrained, torch_dtype=torch.bfloat16, device_map="auto", trust_remote_code=True)
         elif self.config.model_type == 'qwen2':
             target_modules=["q_proj", "k_proj", "v_proj"]
             self.model = AutoModelForCausalLM.from_pretrained(
-                self.from_pretrained, torch_dtype="auto", device_map="auto", trust_remote_code=True)
+                self.from_pretrained, torch_dtype=torch.bfloat16, device_map=None, low_cpu_mem_usage=False, trust_remote_code=True)
         peft_config = LoraConfig(
             task_type=TaskType.CAUSAL_LM,
             inference_mode=False,
