@@ -81,7 +81,8 @@ class Trainer():
             print('Accessing Resume PATH: {} ...\n'.format(resume_path))
             self.model.enable_input_require_grads()
             self.model = PeftModel.from_pretrained(
-                self.model, resume_path, config=peft_config)
+                self.model, resume_path, config=peft_config, is_trainable=True)
+            self.model.print_trainable_parameters()
         else:
             self.model = get_peft_model(self.model, peft_config)
             self.model.print_trainable_parameters()
