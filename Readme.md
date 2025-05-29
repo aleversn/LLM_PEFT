@@ -1,136 +1,135 @@
-### 本项目用于LLM-PEFT入门使用
+## 本项目用于LLM-PEFT入门使用
 
-#### 前置工作
+本项目旨在提供一个简明的入门指南，帮助用户基于主流大模型（如 Llama3、GLM4、Qwen2）进行参数高效微调（PEFT）训练和推理。
 
-安装环境
+## 🛠️ 一、环境配置
 
-- Llama3, GLM4, Qwen2
+### ✅ 安装依赖
+
+#### - 支持 Llama3、GLM4、Qwen2 模型：
 
 ```bash
 pip install protobuf transformers>=4.44.1 cpm_kernels torch>=2.0 gradio mdtex2html sentencepiece accelerate
 ```
 
-- GLM3
+#### - 若使用 GLM3 模型：
 
 ```bash
 pip install protobuf transformers==4.30.2 cpm_kernels torch>=2.0 gradio mdtex2html sentencepiece accelerate
 ```
 
-- vLLM
+---
 
-- 使用`vLLM`
+### ✅ vLLM 推理加速（推荐）
+
+建议使用 vLLM 以提升推理效率。
+
+#### - 创建 Conda 环境：
 
 ```bash
-# (Recommended) Create a new conda environment.
 conda create -n vllm python=3.12 -y
 conda activate vllm
 ```
 
-要求CUDA >= 12.1
+#### - 安装 vLLM（需 CUDA >= 12.1）：
 
 ```bash
-# Install vLLM with CUDA 12.6.
-pip install vllm # If you are using pip.
+pip install vllm
 ```
 
-其他情况请参考官网安装[vLLM](https://docs.vllm.ai/en/latest/getting_started/installation/gpu.html)
+更多安装方式详见 [vLLM 官网](https://docs.vllm.ai/en/latest/getting_started/installation/gpu.html)
 
-#### 推理
+---
 
-1. Transformers官方方法
+## ✨ 二、模型推理使用说明
+
+### 1. 使用 vLLM 进行推理：
+
+```python
+from main.predictor.vllm import Predictor
+
+pred = Predictor(model_from_pretrained='Qwen/Qwen3-8B')
+result = pred('采购人委托采购代理机构代理采购项目，发布招标公告后，有权更换采购代理机构吗?', max_new_tokens=512)
+print(result)
+```
+
+---
+
+### 2. 项目封装推理调用
+
+根据模型类型选择对应模块：
+
+| 模型类型        | 使用模块                     |
+| ----------- | ------------------------ |
+| ChatGLM（≤3） | `main.predictor.chatglm` |
+| 其他          | `main.predictor.llm`     |
+
+#### - 示例：ChatGLM 推理
+
+```python
+from main.predictor.chatglm import Predictor
+
+predictor = Predictor(model_name="ChatGLM2-6B", model_from_pretrained="model/chatglm3-6b")
+res = predictor("你好?", history=[])
+print(res)
+```
+
+#### - 支持流式推理：
+
+```python
+for res in predictor.stream_chat("你的任务是什么?", history=[]):
+    sys.stdout.write('\r' + res[0])
+    sys.stdout.flush()
+```
+
+---
+
+### 3. LoRA 微调模型推理
+
+| 模型类型        | 使用模块                          |
+| ----------- | ----------------------------- |
+| ChatGLM（≤3） | `main.predictor.chatglm_lora` |
+| 其他          | `main.predictor.llm_lora`     |
+
+#### - 示例：ChatGLM LoRA 推理
+
+```python
+from main.predictor.chatglm_lora import Predictor
+
+pred = Predictor(model_from_pretrained='./model/chatglm3-6b', resume_path='./save_model/RAG/ChatGLM_44136')
+result = pred('采购人委托采购代理机构代理采购项目，发布招标公告后，有权更换采购代理机构吗?', max_new_tokens=512)
+print(result)
+```
+
+---
+
+### 4. Transformers 官方推理方法
 
 ```python
 from transformers import AutoTokenizer, AutoModel
 
 tokenizer = AutoTokenizer.from_pretrained("model/chatglm3-6b", trust_remote_code=True)
 model = AutoModel.from_pretrained("model/chatglm3-6b", trust_remote_code=True).half().cuda()
-model = model.eval()
-history = []
+model.eval()
 ```
 
-- 1.1 直接推理
+#### - 直接推理：
 
 ```python
-response, history = model.stream_chat(tokenizer, "你的任务是什么?", history=history)
+response, history = model.chat(tokenizer, "你的任务是什么?", history=[])
 print(response)
 ```
 
-- 1.2 流式推理
+#### - 流式推理：
 
 ```python
-for response, history in model.stream_chat(tokenizer, "你的任务是什么?", history=history):
+for response, history in model.stream_chat(tokenizer, "你的任务是什么?", history=[]):
     print(response)
 ```
 
-2. 项目封装方法
+---
 
-- ChatGLM <= 3: `main.predictor.chatglm`
-- Else: `main.predictor.llm`
-
-```python
-import sys
-from main.predictor.chatglm import Predictor
-
-predictor = Predictor(model_name="ChatGLM2-6B", model_from_pretrained="model/chatglm3-6b")
-```
-
-- 2.1 直接推理
-
-```python
-res = predictor("你好?", history=[])
-print(res)
-```
-
-- 2.2 流式推理
-
-```python
-history = []
-for res in predictor.stream_chat("你的任务是什么?", history=history):
-    sys.stdout.write('\r' + res[0])
-    sys.stdout.flush()
-```
-
-3. PEFT模型推理
-
-- ChatGLM <= 3: `main.predictor.chatglm_lora`
-- Else: `main.predictor.llm_lora`
-
-```python
-from main.predictor.chatglm_lora import Predictor
-
-pred = Predictor(model_from_pretrained='./model/chatglm3-6b', resume_path='./save_model/RAG/ChatGLM_44136')
-```
-
-- 3.1 直接推理
-
-```python
-result = pred('采购人委托采购代理机构代理采购项目，发布招标公告后，有权更换采购代理机构吗?', max_new_tokens=512)
-print(result)
-```
-
-- 3.2 流式推理
-
-```python
-history = []
-result = pred.chat('采购人委托采购代理机构代理采购项目，发布招标公告后，有权更换采购代理机构吗?', max_new_tokens=3000, history=history)
-history = result[1]
-print(result[0])
-```
-
-4. vLLM推理
-
-```python
-from main.predictor.vllm import Predictor
-
-pred = Predictor(model_from_pretrained='Qwen/Qwen3-8B')
-```
-
-```python
-result = pred('采购人委托采购代理机构代理采购项目，发布招标公告后，有权更换采购代理机构吗?', max_new_tokens=512)
-print(result)
-```
-
-#### PEFT微调训练
+## 🔥 三、PEFT 微调训练
 
 ```python
 from main.trainer.llm_lora import Trainer
@@ -138,64 +137,135 @@ from transformers import AutoTokenizer, AutoConfig
 
 tokenizer = AutoTokenizer.from_pretrained("model/chatglm3-6b", trust_remote_code=True)
 config = AutoConfig.from_pretrained("model/chatglm3-6b", trust_remote_code=True)
-trainer = Trainer(tokenizer=tokenizer, config=config, from_pretrained='./model/chatglm3-6b', loader_name='ChatGLM_Chat', data_path='<dataset_name></dataset_name>', max_new_tokens=3600, batch_size=1, task_name='<dataset_name>')
+
+trainer = Trainer(
+    tokenizer=tokenizer,
+    config=config,
+    from_pretrained='./model/chatglm3-6b',
+    loader_name='ChatGLM_Chat',
+    data_path='<dataset_name>',
+    max_new_tokens=3600,
+    batch_size=1,
+    task_name='<dataset_name>'
+)
 ```
 
 - loader_name: 数据集加载器, 其中`ChatGLM <= 3`为`ChatGLM_Chat`, 其余均使用`LLM_Chat`.
-- `<dataset_name>`: 表示选用的训练数据集类型, 请创建`./data/present.json`文件并自定义数据集路径, 例如:
+- `<dataset_name>`: 表示选用的训练数据集类型, 请创建`./data/present.json`文件并自定义数据集路径.
 
-`present.json`
+### 数据集配置说明
+
+请在 `./data/present.json` 中配置训练数据路径：
 
 ```json
 {
-    "qa_dataset": {
-        "train": "./data/...",
-        "dev": "./data/..."
-    },
-    "law_dataset": {
-        "train": "./data/...",
-        "dev": "./data/..."
-    }
+  "qa_dataset": {
+    "train": "./data/qa_train.json",
+    "dev": "./data/qa_dev.json"
+  },
+  "law_dataset": {
+    "train": "./data/law_train.json",
+    "dev": "./data/law_dev.json"
+  }
 }
 ```
 
 当此时, `<dataset_name>`选取为`qa_dataset`时, 模型将自动读取对应的`train`, `dev`和`test`(可缺省)路径下的数据集.
 
-- `loader_name`: 表示使用的数据装载器, 目前开发了`ChatGLM_LoRA`和`ChatGLM_Chat`两种.
+### 数据格式
 
-**数据集格式**
-
-- `ChatGLM_LoRA`: 训练数据集格式与GLM一致,样例为:
-
-```json
-[{"role": "user", "content": "请识别xxx\n输入: 三件事不能硬撑"}, {"role": "assistant", "content": "好的, 答案是xxx"}]
-[{"role": "user", "content": "指令: 请识别xxx\n输入: 问答"}, {"role": "assistant", "content": "好的, 答案是xxx"}]
-[{"role": "user", "content": "指令: 请识别xxx\n输入: 节奏"}, {"role": "assistant", "content": "好的, 答案是xxx"}]
-```
-
-亦或是
+* **ChatGLM\_Chat 格式**（推荐）：
 
 ```json
 {"conversations": [{"role": "user", "content": "请识别xxx\n输入: 三件事不能硬撑"}, {"role": "assistant", "content": "好的, 答案是xxx"}]}
-{"conversations": [{"role": "user", "content": "指令: 请识别xxx\n输入: 问答"}, {"role": "assistant", "content": "好的, 答案是xxx"}]}
-{"conversations": [{"role": "user", "content": "指令: 请识别xxx\n输入: 节奏"}, {"role": "assistant", "content": "好的, 答案是xxx"}]}
 ```
 
-- `ChatGLM_LoRA`: 为自定义的输入输出格式, 形式上更加自由, 样例为:
+* **ChatGLM\_LoRA 格式**（更灵活）：
 
 ```json
-[{"context": "Instrcution: 请识别xxx\n输入: 三件事不能硬撑\n Answer: ", "target": "好的, 答案是xxx\n"}]
+[{"context": "Instruction: 请识别xxx\n输入: 三件事不能硬撑\nAnswer: ", "target": "好的, 答案是xxx\n"}]
 ```
 
-#### PEFT + PPO训练
+---
+
+## 🚀 四、分布式训练支持
+
+### ✅ 使用 Accelerate 分布式训练：
+
+```bash
+accelerate launch --num_processes=<n_gpu> <your_script>.py
+```
+
+> 注意：batch\_size 表示每个 GPU 上的 batch 大小。
+
+---
+
+### ✅ 启用 DeepSpeed ZeRO-3 + 张量并行
+
+#### 安装：
+
+```bash
+pip install deepspeed
+```
+
+#### 配置：
+
+```bash
+accelerate config
+# DeepSpeed -> Yes
+# DeepSpeed config file -> ./ds_config.json
+```
+
+- 配置过程中, GPU选择`multi-GPU`
+
+- 是否使用DeepSpeed: `Yes`
+
+- 是否指定DeepSpeed配置文件: `Yes`
+
+- DeepSpeed配置文件路径: `./ds_config.json`
+
+其他选项默认为`No`, 即[yes/No]中直接回车.
+
+`ds_config.json`配置文件内容如下:
+
+示例配置文件 `ds_config.json`：
+
+```json
+{
+    "train_micro_batch_size_per_gpu": 1,
+    "gradient_accumulation_steps": 1,
+    "zero_optimization": {
+        "stage": 3,
+        "offload_param": {
+            "device": "cpu"
+        }
+    },
+    "tensor_model_parallel_size": 2,
+    "pipeline_model_parallel_size": 1,
+    "fp16": {
+        "enabled": true
+    }
+}
+```
+
+---
+
+## 🎭 五、PEFT + PPO 强化学习微调
 
 ```python
 from main.trainer.chatglm_rlhf import Trainer
-from transformers import AutoTokenizer, AutoConfig
 
-tokenizer = AutoTokenizer.from_pretrained("/home/lpc/models/chatglm3-6b/", trust_remote_code=True)
-config = AutoConfig.from_pretrained("/home/lpc/models/chatglm3-6b/", trust_remote_code=True)
-trainer = Trainer(tokenizer=tokenizer, config=config, from_pretrained='/home/lpc/models/chatglm3-6b/', reward_from_pretrained='/home/lpc/models/text2vec-base-chinese/', loader_name='ChatGLM_RLHF', data_path='ID', max_new_tokens=1200, batch_size=2, task_name='ID')
+trainer = Trainer(
+    tokenizer=tokenizer,
+    config=config,
+    from_pretrained='/home/lpc/models/chatglm3-6b/',
+    reward_from_pretrained='/home/lpc/models/text2vec-base-chinese/',
+    loader_name='ChatGLM_RLHF',
+    data_path='ID',
+    max_new_tokens=1200,
+    batch_size=2,
+    task_name='ID'
+)
 
 for i in trainer(num_epochs=5):
     a = i
@@ -203,20 +273,31 @@ for i in trainer(num_epochs=5):
 
 - `reward_from_pretrained`: Reward Model模型文件
 
-**数据集格式**
+数据格式：
 
 - `ChatGLM_RLHF`: 训练数据集格式包含`conversations`, `gold_answers`和`bad_answers`三个字段.
 
 ```json
-{"conversations": [{"role": "user", "content": "你的主人是谁？"}, {"role": "assistant", "content": "张三是我的主人。"}], "gold_answers": ["张三是我的主人。"], "bad_answers": ["我没有主人", "我不知道", "我没有真正的主人", "我是人工智能没有主人"]}
+{
+  "conversations": [...],
+  "gold_answers": ["理想答案"],
+  "bad_answers": ["错误答案1", "错误答案2"]
+}
 ```
 
-#### RAG推理
+---
+
+## 💭 六、RAG（检索增强生成）推理
 
 使用前, 需安装好`chromadb`
 
+```bash
+pip install chromadb
+```
+
+### ✅ 构建 chromadb 检索数据库
+
 ```python
-# 创建或者加载chromadb客户端
 import chromadb
 from chromadb.utils import embedding_functions
 
@@ -229,15 +310,13 @@ sentence_transformer_ef = embedding_functions.SentenceTransformerEmbeddingFuncti
 collection = client.get_or_create_collection(DB_NAME, embedding_function=sentence_transformer_ef, metadata={"hnsw:space": "cosine"})
 ```
 
-加载模型
+### ✅ 启用 RAG 推理：
 
 ```python
 from main.predictor.chatglm_lora import Predictor
 
 pred = Predictor(model_from_pretrained='./model/chatglm3-6b', resume_path='./save_model/RAG/ChatGLM_44136')
-```
 
-```python
 user_question = '这里是用户的提问'
 # 检索相关片段
 res = collection.query(
@@ -263,9 +342,9 @@ history = result[1]
 print(result[0])
 ```
 
-#### 验证集/测试集生成推理
+---
 
-建议采用`Predictor`中的默认方法, 以便支持批量生成.
+## ⏫ 七、辅助的验证集/测试集批量推理
 
 ```python
 from main.evaluation.inferences import inference_with_data_path
@@ -279,12 +358,11 @@ def batcher(item):
 inference_with_data_path(data_path='YOUR_PATH', batcher=batcher, save_path='./outputs.txt', batch_size=4)
 ```
 
-你可以自行实现`batcher`仅需确保返回的是生成文本即可,
-若你希望能够自行喂入数据, 也可以使用`inference_with_data`, 注意每一条格式为`{"query": "", "history": []}`
+---
 
-#### 评估性能
+## 🧪 八、评估指标
 
-- 单例计算
+### - 单条文本评估：
 
 ```python
 from main.evaluation.metrics import evaluate_all_metrics
@@ -300,7 +378,7 @@ scores = evaluate_all_metrics(tokenizer, reference_text, generated_text, intensi
 print(scores)
 ```
 
-- 批量计算
+### - 批量评估：
 
 ```python
 from main.evaluation.metrics import evaluate_generation
