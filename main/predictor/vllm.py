@@ -2,6 +2,7 @@ import json
 import torch
 from transformers import AutoTokenizer, AutoConfig
 from vllm import LLM, SamplingParams
+from vllm.lora.request import LoRARequest
 from typing import Tuple, List
 
 
@@ -10,6 +11,7 @@ class Predictor():
     def __init__(self,
                  tensor_parallel_size: int = 1,
                  model_from_pretrained: str = None,
+                 resume_path: str = None,
                  **args
                  ):
         '''
@@ -19,10 +21,13 @@ class Predictor():
 
         `tensor_parallel_size`: 张量并行使用的 GPU 数量（模型被拆分到多个卡）
 
-        `model_config_file_name`: bert配置文件名 (bert config file name)
+        `model_from_pretrained`: 预训练模型的路径或名称（如HuggingFace模型名）
+
+        `resume_path`: 如果有预训练的LoRA模型，可以指定路径进行加载
         '''
         self.tp = tensor_parallel_size
         self.model_from_pretrained = model_from_pretrained
+        self.lora_path = resume_path
         self.model_init()
 
     def model_init(self):
@@ -30,7 +35,7 @@ class Predictor():
             self.model_from_pretrained, trust_remote_code=True)
         self.tokenizer = AutoTokenizer.from_pretrained(
             self.model_from_pretrained, padding_side="left", trust_remote_code=True)
-        self.llm = LLM(self.model_from_pretrained, tensor_parallel_size=self.tp, trust_remote_code=True)
+        self.llm = LLM(self.model_from_pretrained, tensor_parallel_size=self.tp, trust_remote_code=True, enable_lora=self.lora_path is not None)
         if hasattr(self.config, 'eos_token_id'):
             self.eos_token_id = [self.config.eos_token_id]
         if hasattr(self.config, 'bos_token_id'):
@@ -98,7 +103,14 @@ class Predictor():
 
         sampling_params = SamplingParams(temperature=temperature, top_p=top_p, max_tokens=max_new_tokens)
 
-        outputs = self.llm.generate(inputs, sampling_params)
+        if self.lora_path is not None:
+            outputs = self.llm.generate(
+                inputs,
+                sampling_params,
+                lora_request=LoRARequest("custom_lora", 1, self.lora_path)
+            )
+        else:
+            outputs = self.llm.generate(inputs, sampling_params)
         results = []
         for output in outputs:
             prompt = output.prompt
