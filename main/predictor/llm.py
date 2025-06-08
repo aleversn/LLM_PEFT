@@ -1,14 +1,16 @@
 import json
 import torch
-from transformers import AutoTokenizer, AutoModel, AutoConfig, LlamaForCausalLM, AutoModelForCausalLM
-from typing import Tuple, List
+from transformers import AutoTokenizer, AutoModel, AutoConfig, LlamaForCausalLM, AutoModelForCausalLM, TextIteratorStreamer
+from peft import LoraConfig, TaskType, PeftModel, PeftModelForCausalLM
+import threading
+from typing import Tuple, List, Optional
 
 
 class Predictor():
 
     def __init__(self,
-                 num_gpus: list = [0],
                  model_from_pretrained: str = None,
+                 peft_path: str = None,
                  **args
                  ):
         '''
@@ -16,28 +18,29 @@ class Predictor():
 
         ### Args:
 
-        `num_gpus`: 使用的GPU编号列表 (the list of GPU numbers)
-
         `model_config_file_name`: bert配置文件名 (bert config file name)
         '''
-        self.num_gpus = num_gpus
+        self.peft_path = peft_path
+        if self.peft_path is not None:
+            self.peft_config = LoraConfig.from_pretrained(self.peft_path)
         self.model_from_pretrained = model_from_pretrained
         self.model_init()
 
     def model_init(self):
         self.config = AutoConfig.from_pretrained(
             self.model_from_pretrained, trust_remote_code=True)
+        self.model_type = self.config.model_type if hasattr(self.config, 'model_type') else 'llama'
         self.tokenizer = AutoTokenizer.from_pretrained(
             self.model_from_pretrained, padding_side="left", trust_remote_code=True)
         if hasattr(self.config, 'eos_token_id'):
             self.eos_token_id = [self.config.eos_token_id]
         if hasattr(self.config, 'bos_token_id'):
             self.bos_token_id = [self.config.bos_token_id]
-        if self.config.model_type == 'chatglm':
+        if self.model_type == 'chatglm':
             self.model = AutoModel.from_pretrained(
                 self.model_from_pretrained, trust_remote_code=True).to(torch.bfloat16)
             self.eos_token_id = self.config.eos_token_id
-        elif self.config.model_type == 'llama':
+        elif self.model_type == 'llama':
             self.tokenizer.pad_token = self.tokenizer.eos_token
             self.model = LlamaForCausalLM.from_pretrained(
                 self.model_from_pretrained, trust_remote_code=True).to(torch.bfloat16)
@@ -50,28 +53,30 @@ class Predictor():
             for t in terminators:
                 if t is not None:
                     self.eos_token_id.append(t)
-        elif self.config.model_type == 'qwen':
+        elif self.model_type == 'qwen':
             self.model = AutoModelForCausalLM.from_pretrained(
                 self.model_from_pretrained, torch_dtype="auto", device_map="auto", trust_remote_code=True)
-        elif self.config.model_type == 'qwen2':
+        elif self.model_type == 'qwen2':
             self.model = AutoModelForCausalLM.from_pretrained(
                 self.model_from_pretrained, torch_dtype="auto", device_map="auto", trust_remote_code=True)
-        elif self.config.model_type == "mimo":
+        elif self.model_type == "mimo":
             self.eos_token_id = self.config.eos_token_id
             self.bos_token_id = self.config.bos_token_id
             self.model =  AutoModelForCausalLM.from_pretrained(self.model_from_pretrained, device_map="auto",trust_remote_code=True)
-        elif self.config.model_type == "tinyr1":
+        elif self.model_type == "tinyr1":
             self.eos_token_id = self.config.eos_token_id
             self.bos_token_id = self.config.bos_token_id
             self.model =  AutoModelForCausalLM.from_pretrained(self.model_from_pretrained, device_map="auto",trust_remote_code=True)
-        self.model_to_device(gpu=self.num_gpus)
+        if self.peft_path is not None:
+            self.model = PeftModel.from_pretrained(
+                self.model, self.peft_path, config=self.peft_config)
+        self.model_to_device()
         self.model = self.model.eval()
 
-    def model_to_device(self, gpu=[0]):
+    def model_to_device(self):
         self.device = torch.device(
             "cuda:0" if torch.cuda.is_available() else "cpu")
         self.model.cuda()
-        self.model = torch.nn.DataParallel(self.model, device_ids=gpu).cuda()
         self.model.to(self.device)
         self.true_model = self.model.module if hasattr(
             self.model, 'module') else self.model
@@ -92,10 +97,11 @@ class Predictor():
         max_input_tokens = max(max_input_tokens, len(new_batch_input))
         return new_batch_input, max_input_tokens
 
-    def predict(self, query: str | list = '', history: List = None, max_length=512, max_new_tokens=512, num_beams:int=1, top_p: float = 0.8, temperature=1.0, do_sample: bool = False, build_message=True):
+    def predict(self, query: str | list = '', history: List = None, max_new_tokens=512, num_beams:int=1, top_p: float = 0.8, temperature=1.0, do_sample: bool = False, build_message=True):
         if not isinstance(query, list):
             query = [query]
             history = [history] if history is not None else None
+        
         with torch.no_grad():
             if build_message:
                 inputs = []
@@ -117,12 +123,13 @@ class Predictor():
                 for i in range(len(query)):
                     if len(query[i]) > batch_max_len:
                         batch_max_len = len(query[i])
+            
             batched_inputs = self.tokenizer(
                 inputs,
                 return_tensors="pt",
                 padding=True,
                 truncation=True).to(self.device)
-            if self.config.model_type == 'llama':
+            if self.model_type == 'llama':
                 batched_inputs = batched_inputs.data
             batched_outputs = self.true_model.generate(**batched_inputs, **{
                 'max_new_tokens': max_new_tokens,
@@ -135,5 +142,129 @@ class Predictor():
             batched_response = self.process_model_outputs(batched_inputs, batched_outputs, self.tokenizer)
         return batched_response
 
-    def __call__(self, query: str | list = '', history: List = None, max_length=512, max_new_tokens=512, num_beams:int=1, top_p: float = 0.8, temperature=1.0, do_sample: bool = False, build_message=True):
-        return self.predict(query, history, max_length, max_new_tokens, num_beams, top_p, temperature, do_sample, build_message)
+    def __call__(self, query: str | list = '', history: List = None, max_new_tokens=512, num_beams:int=1, top_p: float = 0.8, temperature=1.0, do_sample: bool = False, build_message=True):
+        return self.predict(query, history, max_new_tokens, num_beams, top_p, temperature, do_sample, build_message)
+    
+    def predict_stream(self, query: str | list = '', history: List = None, max_new_tokens=512, num_beams:int=1, top_p: float = 0.8, temperature=1.0, do_sample: bool = True, build_message=True):
+        """
+        Streaming prediction
+
+        Yields one string chunk at a time.
+        """
+        if not isinstance(query, list):
+            query = [query]
+            history = [history] if history is not None else None
+        
+        with torch.no_grad():
+            if build_message:
+                inputs = []
+                batch_max_len = 0
+                for i, t in enumerate(query):
+                    if isinstance(t, str):
+                        t = {'role': 'user', 'content': t}
+                    if history is not None and len(history) > 0:
+                        h_unit = history[i]
+                    else:
+                        h_unit = []
+                    t, max_input_tokens = self.build_chat_input(t, h_unit)
+                    if batch_max_len < max_input_tokens:
+                        batch_max_len = max_input_tokens
+                    inputs.append(t)
+            else:
+                inputs = query
+                batch_max_len = 0
+                for i in range(len(query)):
+                    if len(query[i]) > batch_max_len:
+                        batch_max_len = len(query[i])
+            
+            batched_inputs = self.tokenizer(
+                inputs,
+                return_tensors="pt",
+                padding=True,
+                truncation=True).to(self.device)
+            if self.model_type == 'llama':
+                batched_inputs = batched_inputs.data
+            
+            streamer = BatchTextIteratorStreamer(len(batched_inputs), self.tokenizer, skip_prompt=True, skip_special_tokens=True)
+            
+            generation_kwargs = {
+                **batched_inputs,
+                'max_new_tokens': max_new_tokens,
+                'num_beams': num_beams,
+                'do_sample': do_sample,
+                'top_p': top_p,
+                "temperature": temperature,
+                "eos_token_id": self.eos_token_id,
+                'streamer': streamer
+            }
+            
+            def thread_func():
+                self.true_model.generate(**generation_kwargs)
+            
+            generation_thread = threading.Thread(target=thread_func)
+            generation_thread.start()
+            
+            outputs = ["" for _ in range(len(batched_inputs['input_ids']))]
+            for new_text in streamer:
+                for idx, new_next_item in enumerate(new_text):
+                    if new_next_item is None:
+                        continue
+                    outputs[idx] += new_next_item
+                yield new_text, outputs
+
+
+class BatchTextIteratorStreamer(TextIteratorStreamer):
+    def __init__(self, batch_size:int, tokenizer: "AutoTokenizer", skip_prompt: bool = False, timeout: Optional[float] = None, **decode_kwargs):
+        super().__init__(tokenizer, skip_prompt, timeout, **decode_kwargs)
+        self.batch_size = batch_size
+        self.token_cache = [[] for _ in range(batch_size)]
+        self.print_len = [0 for _ in range(batch_size)]
+        self.generate_exception = None
+
+    def put(self, value):
+        if len(value.shape) != 2:
+            value = torch.reshape(value, (self.batch_size, value.shape[0] // self.batch_size))
+
+        if self.skip_prompt and self.next_tokens_are_prompt:
+            self.next_tokens_are_prompt = False
+            return
+
+        printable_texts = list()
+        for idx in range(self.batch_size):
+            self.token_cache[idx].extend(value[idx].tolist())
+            text = self.tokenizer.decode(self.token_cache[idx], **self.decode_kwargs)
+
+            if text.endswith("\n"):
+                printable_text = text[self.print_len[idx] :]
+                self.token_cache[idx] = []
+                self.print_len[idx] = 0
+                # If the last token is a CJK character, we print the characters.
+            elif len(text) > 0 and self._is_chinese_char(ord(text[-1])):
+                printable_text = text[self.print_len[idx] :]
+                self.print_len[idx] += len(printable_text)
+            else:
+                printable_text = text[self.print_len[idx] : text.rfind(" ") + 1]
+                self.print_len[idx] += len(printable_text)
+            printable_texts.append(printable_text)
+
+        self.on_finalized_text(printable_texts)
+
+    def end(self):
+        printable_texts = list()
+        for idx in range(self.batch_size):
+            if len(self.token_cache[idx]) > 0:
+                text = self.tokenizer.decode(self.token_cache[idx], **self.decode_kwargs)
+                printable_text = text[self.print_len[idx] :]
+                self.token_cache[idx] = []
+                self.print_len[idx] = 0
+            else:
+                printable_text = ""
+            printable_texts.append(printable_text)
+
+        self.next_tokens_are_prompt = True
+        self.on_finalized_text(printable_texts, stream_end=True)
+
+    def on_finalized_text(self, texts: List[str], stream_end: bool = False):
+        self.text_queue.put(texts, timeout=self.timeout)
+        if stream_end:
+            self.text_queue.put(self.stop_signal, timeout=self.timeout)
