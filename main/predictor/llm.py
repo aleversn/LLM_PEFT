@@ -1,6 +1,6 @@
 import json
 import torch
-from transformers import AutoTokenizer, AutoModel, AutoConfig, LlamaForCausalLM, AutoModelForCausalLM, TextIteratorStreamer
+from transformers import AutoTokenizer, AutoModel, AutoConfig, LlamaForCausalLM, AutoModelForCausalLM, TextIteratorStreamer, AutoProcessor, Qwen2_5_VLForConditionalGeneration
 from peft import LoraConfig, TaskType, PeftModel, PeftModelForCausalLM
 import threading
 from typing import Tuple, List, Optional
@@ -32,6 +32,7 @@ class Predictor():
         self.model_type = self.config.model_type if hasattr(self.config, 'model_type') else 'llama'
         self.tokenizer = AutoTokenizer.from_pretrained(
             self.model_from_pretrained, padding_side="left", trust_remote_code=True)
+        self.processor = self.tokenizer
         if hasattr(self.config, 'eos_token_id'):
             self.eos_token_id = [self.config.eos_token_id]
         if hasattr(self.config, 'bos_token_id'):
@@ -67,6 +68,11 @@ class Predictor():
             self.eos_token_id = self.config.eos_token_id
             self.bos_token_id = self.config.bos_token_id
             self.model =  AutoModelForCausalLM.from_pretrained(self.model_from_pretrained, device_map="auto",trust_remote_code=True)
+        elif self.model_type == "qwen2_5_vl":
+            self.eos_token_id = self.config.eos_token_id
+            self.bos_token_id = self.config.bos_token_id
+            self.model =  Qwen2_5_VLForConditionalGeneration.from_pretrained(self.model_from_pretrained, torch_dtype=torch.float16, device_map="auto",trust_remote_code=True)
+            self.processor = AutoProcessor.from_pretrained(self.model_from_pretrained, padding_side='left')
         if self.peft_path is not None:
             self.model = PeftModel.from_pretrained(
                 self.model, self.peft_path, config=self.peft_config)
@@ -88,14 +94,45 @@ class Predictor():
             responses.append(response)
         return responses
     
-    def build_chat_input(self, query:str, history=None):
+    def build_chat_input(self, query:list, history=None):
         if history is None:
             history = []
         history.append(query)
+        is_mm = self.is_mm(history)
         max_input_tokens = 0
         new_batch_input = self.tokenizer.apply_chat_template(history, add_generation_prompt=True, tokenize=False)
         max_input_tokens = max(max_input_tokens, len(new_batch_input))
-        return new_batch_input, max_input_tokens
+        return {
+            'text': new_batch_input,
+            'max_input_tokens': max_input_tokens,
+            'is_mm': is_mm
+        }
+    
+    def is_mm(self, message: dict | list):
+        if not isinstance(message, list):
+            message = [message]
+        for msg in message:
+            if isinstance(msg, dict) and 'content' in msg and isinstance(msg['content'], list):
+                for content in msg['content']:
+                    if 'type' in content and content['type'] in ['image', 'video']:
+                        return True
+        return False
+    
+    def process_mm(self, query_list:list, history_list=None):
+        if history_list is not None:
+            assert len(query_list) == len(history_list), "Query and history must have the same length."
+            for query, history in zip(query_list, history_list):
+                if isinstance(query, str):
+                    query = {'role': 'user', 'content': query}
+                history.append(query)
+        else:
+            history_list = [[query] for query in query_list]
+        
+        if self.model_type == 'qwen2_5_vl':
+            from qwen_vl_utils import process_vision_info
+            image_inputs, video_inputs = process_vision_info(history_list)
+            return image_inputs, video_inputs
+
 
     def predict(self, query: str | list = '', history: List = None, max_new_tokens=512, num_beams:int=1, top_p: float = 0.8, temperature=1.0, do_sample: bool = False, build_message=True):
         if not isinstance(query, list):
@@ -103,6 +140,9 @@ class Predictor():
             history = [history] if history is not None else None
         
         with torch.no_grad():
+            image_inputs = None
+            video_inputs = None
+            is_mm = False
             if build_message:
                 inputs = []
                 batch_max_len = 0
@@ -113,10 +153,12 @@ class Predictor():
                         h_unit = history[i]
                     else:
                         h_unit = []
-                    t, max_input_tokens = self.build_chat_input(t, h_unit)
-                    if batch_max_len < max_input_tokens:
-                        batch_max_len = max_input_tokens
-                    inputs.append(t)
+                    chat_input = self.build_chat_input(t, h_unit)
+                    if batch_max_len < chat_input['max_input_tokens']:
+                        batch_max_len = chat_input['max_input_tokens']
+                    inputs.append(chat_input['text'])
+                    if chat_input['is_mm']:
+                        is_mm = True
             else:
                 inputs = query
                 batch_max_len = 0
@@ -124,11 +166,24 @@ class Predictor():
                     if len(query[i]) > batch_max_len:
                         batch_max_len = len(query[i])
             
-            batched_inputs = self.tokenizer(
-                inputs,
-                return_tensors="pt",
-                padding=True,
-                truncation=True).to(self.device)
+            if is_mm:
+                image_inputs, video_inputs = self.process_mm(query, history)
+            
+            if image_inputs is not None or video_inputs is not None:
+                batched_inputs = self.processor(
+                    text=inputs,
+                    images=image_inputs,
+                    videos=video_inputs,
+                    return_tensors="pt",
+                    padding=True,
+                    truncation=True).to(self.device)
+            else:
+                batched_inputs = self.tokenizer(
+                    inputs,
+                    return_tensors="pt",
+                    padding=True,
+                    truncation=True).to(self.device)
+
             if self.model_type == 'llama':
                 batched_inputs = batched_inputs.data
             batched_outputs = self.true_model.generate(**batched_inputs, **{

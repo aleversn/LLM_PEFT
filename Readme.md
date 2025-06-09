@@ -49,6 +49,26 @@ result = pred('采购人委托采购代理机构代理采购项目，发布招�
 print(result)
 ```
 
+#### - 支持VL模型推理
+
+```python
+pred([{
+    "role": "user",
+    "content": [
+        {"type": "image", "image": "./example.jpg"},
+        {"type": "text", "text": "她是谁?"},
+    ]
+}, {
+    "role": "user",
+    "content": [
+        {"type": "image", "image": "./example.jpg"},
+        {"type": "text", "text": "她有哪些著名作品?"},
+    ]
+}])
+```
+
+针对不同模型, 请在[vLLM 文档](https://docs.vllm.ai/en/latest/examples/offline_inference/vision_language.html)上详见参数配置, 并直接在Predictor中设置.
+
 ---
 
 ### 2. 项目封装推理调用
@@ -64,6 +84,59 @@ print(res)
 ```
 
 - history: history为二维数组, 其中每一项对应一个`query`的`history`.
+
+#### - 支持VL模型推理
+
+```python
+pred([{
+    "role": "user",
+    "content": [
+        {"type": "image", "image": "./example.jpg"},
+        {"type": "text", "text": "她是谁?"},
+    ]
+}, {
+    "role": "user",
+    "content": [
+        {"type": "image", "image": "./example.jpg"},
+        {"type": "text", "text": "她有哪些著名作品?"},
+    ]
+}])
+```
+
+其中, 对于大尺寸图片需指定其最大像素, 设置方法如下 (以Qwen2.5-VL为例, `最大像素N`一般设为`N*28*28`):
+
+```python
+# min_pixels and max_pixels
+messages = [
+    {
+        "role": "user",
+        "content": [
+            {
+                "type": "image",
+                "image": "file:///path/to/your/image.jpg",
+                "resized_height": 280,
+                "resized_width": 420,
+            },
+            {"type": "text", "text": "Describe this image."},
+        ],
+    }
+]
+# resized_height and resized_width
+messages = [
+    {
+        "role": "user",
+        "content": [
+            {
+                "type": "image",
+                "image": "file:///path/to/your/image.jpg",
+                "min_pixels": 50176,
+                "max_pixels": 50176,
+            },
+            {"type": "text", "text": "Describe this image."},
+        ],
+    }
+]
+```
 
 #### - 支持流式推理：
 
