@@ -1,6 +1,6 @@
 {
-    "train_micro_batch_size_per_gpu": 1,
-    "gradient_accumulation_steps": 1,
+    "train_micro_batch_size_per_gpu": "auto",
+    "gradient_accumulation_steps": "auto",
     "zero_optimization": {
         "stage": 3,
         "offload_param": {
@@ -9,7 +9,7 @@
     },
     "tensor_model_parallel_size": 2,
     "pipeline_model_parallel_size": 1,
-    "fp16": {
-        "enabled": true
+    "bf16": {
+        "enabled": "auto"
     }
 }
