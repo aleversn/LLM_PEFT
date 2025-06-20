@@ -122,7 +122,7 @@ class Predictor():
             images_list.append(images)
         return images_list
 
-    def predict(self, query: str | list = '', history: List = None, max_length=512, max_new_tokens=512, num_beams:int=1, top_p: float = 1.0, temperature=0, do_sample: bool = False, build_message=True):
+    def prepare_generate(self, query: str | list = '', history: List = None, max_length=512, max_new_tokens=512, num_beams:int=1, top_p: float = 1.0, temperature=0, do_sample: bool = False, build_message=True):
         if not isinstance(query, list):
             query = [query]
             history = [history] if history is not None else None
@@ -152,6 +152,8 @@ class Predictor():
         
         if is_mm:
             images_list = self.process_mm(query, history)
+        else:
+            images_list = []
         
         if len(images_list) > 0:
             new_inputs = []
@@ -164,6 +166,28 @@ class Predictor():
         
         sampling_params = SamplingParams(temperature=temperature, top_p=top_p, max_tokens=max_new_tokens)
 
+        return inputs, sampling_params
+    
+    def predict(self, query: str | list = '', history: List = None, max_length=512, max_new_tokens=512, num_beams:int=1, top_p: float = 0.8, temperature=1.0, do_sample: bool = False, build_message=True):
+        '''
+        Predict method for generating responses from the model.
+
+        ### Args:
+        - `query`: The input query or list of queries.
+        - `history`: Conversation history, if any.
+        - `max_length`: Maximum length of the generated response.
+        - `max_new_tokens`: Maximum number of new tokens to generate.
+        - `num_beams`: Number of beams for beam search (default is 1).
+        - `top_p`: Top-p sampling parameter.
+        - `temperature`: Temperature for sampling.
+        - `do_sample`: Whether to use sampling or greedy decoding.
+        - `build_message`: Whether to build the message format for the model.
+
+        ### Returns:
+        - List of generated responses.
+        '''
+
+        inputs, sampling_params = self.prepare_generate(query, history, max_length, max_new_tokens, num_beams, top_p, temperature, do_sample, build_message)
         if self.lora_path is not None:
             outputs = self.llm.generate(
                 inputs,

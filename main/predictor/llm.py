@@ -1,10 +1,15 @@
 import json
 import torch
-from transformers import AutoTokenizer, AutoModel, AutoConfig, LlamaForCausalLM, AutoModelForCausalLM, TextIteratorStreamer, AutoProcessor, Qwen2_5_VLForConditionalGeneration
+from transformers import AutoTokenizer, AutoModel, AutoConfig, LlamaForCausalLM, AutoModelForCausalLM, TextIteratorStreamer, AutoProcessor
 from peft import LoraConfig, TaskType, PeftModel, PeftModelForCausalLM
 import threading
 from typing import Tuple, List, Optional
 
+try:
+    from transformers import Qwen2_5_VLForConditionalGeneration
+except ImportError:
+    Qwen2_5_VLForConditionalGeneration = None
+    print("Qwen2_5_VLForConditionalGeneration is not available. Please install the transformers>=4.47.")
 
 class Predictor():
 
@@ -134,7 +139,7 @@ class Predictor():
             return image_inputs, video_inputs
 
 
-    def predict(self, query: str | list = '', history: List = None, max_new_tokens=512, num_beams:int=1, top_p: float = 0.8, temperature=1.0, do_sample: bool = False, build_message=True):
+    def prepare_generate(self, query: str | list = '', history: List = None, build_message=True):
         if not isinstance(query, list):
             query = [query]
             history = [history] if history is not None else None
@@ -186,7 +191,28 @@ class Predictor():
 
             if self.model_type == 'llama':
                 batched_inputs = batched_inputs.data
-            batched_outputs = self.true_model.generate(**batched_inputs, **{
+            
+            return batched_inputs
+    
+    def predict(self, query: str | list = '', history: List = None, max_new_tokens=512, num_beams:int=1, top_p: float = 0.8, temperature=1.0, do_sample: bool = False, build_message=True):
+        """
+        Predicts the response for the given query and history.
+
+        Args:
+            query (str | list): The input query or a list of queries.
+            history (List): The conversation history.
+            max_new_tokens (int): Maximum number of new tokens to generate.
+            num_beams (int): Number of beams for beam search.
+            top_p (float): Top-p sampling parameter.
+            temperature (float): Temperature for sampling.
+            do_sample (bool): Whether to use sampling or greedy decoding.
+            build_message (bool): Whether to build the chat input message.
+
+        Returns:
+            List[str]: The generated responses.
+        """
+        batched_inputs = self.prepare_generate(query, history, build_message)
+        batched_outputs = self.true_model.generate(**batched_inputs, **{
                 'max_new_tokens': max_new_tokens,
                 'num_beams': num_beams,
                 'do_sample': do_sample,
@@ -194,7 +220,7 @@ class Predictor():
                 "temperature": temperature,
                 "eos_token_id": self.eos_token_id
             })
-            batched_response = self.process_model_outputs(batched_inputs, batched_outputs, self.tokenizer)
+        batched_response = self.process_model_outputs(batched_inputs, batched_outputs, self.tokenizer)
         return batched_response
 
     def __call__(self, query: str | list = '', history: List = None, max_new_tokens=512, num_beams:int=1, top_p: float = 0.8, temperature=1.0, do_sample: bool = False, build_message=True):
@@ -202,70 +228,50 @@ class Predictor():
     
     def predict_stream(self, query: str | list = '', history: List = None, max_new_tokens=512, num_beams:int=1, top_p: float = 0.8, temperature=1.0, do_sample: bool = True, build_message=True):
         """
-        Streaming prediction
-
-        Yields one string chunk at a time.
-        """
-        if not isinstance(query, list):
-            query = [query]
-            history = [history] if history is not None else None
+        Generates responses for the given query and history in a streaming manner.
         
-        with torch.no_grad():
-            if build_message:
-                inputs = []
-                batch_max_len = 0
-                for i, t in enumerate(query):
-                    if isinstance(t, str):
-                        t = {'role': 'user', 'content': t}
-                    if history is not None and len(history) > 0:
-                        h_unit = history[i]
-                    else:
-                        h_unit = []
-                    t, max_input_tokens = self.build_chat_input(t, h_unit)
-                    if batch_max_len < max_input_tokens:
-                        batch_max_len = max_input_tokens
-                    inputs.append(t)
-            else:
-                inputs = query
-                batch_max_len = 0
-                for i in range(len(query)):
-                    if len(query[i]) > batch_max_len:
-                        batch_max_len = len(query[i])
-            
-            batched_inputs = self.tokenizer(
-                inputs,
-                return_tensors="pt",
-                padding=True,
-                truncation=True).to(self.device)
-            if self.model_type == 'llama':
-                batched_inputs = batched_inputs.data
-            
-            streamer = BatchTextIteratorStreamer(len(batched_inputs), self.tokenizer, skip_prompt=True, skip_special_tokens=True)
-            
-            generation_kwargs = {
-                **batched_inputs,
-                'max_new_tokens': max_new_tokens,
-                'num_beams': num_beams,
-                'do_sample': do_sample,
-                'top_p': top_p,
-                "temperature": temperature,
-                "eos_token_id": self.eos_token_id,
-                'streamer': streamer
-            }
-            
-            def thread_func():
-                self.true_model.generate(**generation_kwargs)
-            
-            generation_thread = threading.Thread(target=thread_func)
-            generation_thread.start()
-            
-            outputs = ["" for _ in range(len(batched_inputs['input_ids']))]
-            for new_text in streamer:
-                for idx, new_next_item in enumerate(new_text):
-                    if new_next_item is None:
-                        continue
-                    outputs[idx] += new_next_item
-                yield new_text, outputs
+        Args:
+            query (str | list): The input query or a list of queries.
+            history (List): The conversation history.
+            max_new_tokens (int): Maximum number of new tokens to generate.
+            num_beams (int): Number of beams for beam search.
+            top_p (float): Top-p sampling parameter.
+            temperature (float): Temperature for sampling.
+            do_sample (bool): Whether to use sampling or greedy decoding.
+            build_message (bool): Whether to build the chat input message.
+        
+        Yields:
+            Tuple[List[str], List[str]]: A tuple containing the new text generated and the accumulated outputs.
+        """
+
+        batched_inputs = self.prepare_generate(query, history, build_message)
+
+        streamer = BatchTextIteratorStreamer(len(batched_inputs['input_ids']), self.tokenizer, skip_prompt=True, skip_special_tokens=True)
+
+        generation_kwargs = {
+            **batched_inputs,
+            'max_new_tokens': max_new_tokens,
+            'num_beams': num_beams,
+            'do_sample': do_sample,
+            'top_p': top_p,
+            "temperature": temperature,
+            "eos_token_id": self.eos_token_id,
+            'streamer': streamer
+        }
+        
+        def thread_func():
+            self.true_model.generate(**generation_kwargs)
+        
+        generation_thread = threading.Thread(target=thread_func)
+        generation_thread.start()
+        
+        outputs = ["" for _ in range(len(batched_inputs['input_ids']))]
+        for new_text in streamer:
+            for idx, new_next_item in enumerate(new_text):
+                if new_next_item is None:
+                    continue
+                outputs[idx] += new_next_item
+            yield new_text, outputs
 
 
 class BatchTextIteratorStreamer(TextIteratorStreamer):

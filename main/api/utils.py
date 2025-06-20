@@ -21,5 +21,7 @@ class response_body:
         return json.dumps(res, ensure_ascii=False)
 
 class ChatItem(BaseModel):
-    query: str
+    query: str | list
     history: list
+    response: str = ''
+    status: str = 'loading'
