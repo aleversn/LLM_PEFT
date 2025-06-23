@@ -12,7 +12,11 @@
 pip install protobuf transformers>=4.44.1 cpm_kernels torch>=2.0 gradio mdtex2html sentencepiece accelerate
 ```
 
-> ChatGLM3-6B和GLM4可能存在`transformers`版本限制, 注意降级.
+#### - 若使用 GLM3 模型：
+
+```bash
+pip install protobuf transformers==4.30.2 cpm_kernels torch>=2.0 gradio mdtex2html sentencepiece accelerate
+```
 
 ---
 
@@ -49,112 +53,50 @@ result = pred('采购人委托采购代理机构代理采购项目，发布招�
 print(result)
 ```
 
-#### - 支持VL模型推理
-
-```python
-pred([{
-    "role": "user",
-    "content": [
-        {"type": "image", "image": "./example.jpg"},
-        {"type": "text", "text": "她是谁?"},
-    ]
-}, {
-    "role": "user",
-    "content": [
-        {"type": "image", "image": "./example.jpg"},
-        {"type": "text", "text": "她有哪些著名作品?"},
-    ]
-}])
-```
-
-针对不同模型, 请在[vLLM 文档](https://docs.vllm.ai/en/latest/examples/offline_inference/vision_language.html)上详见参数配置, 并直接在Predictor中设置.
-
 ---
 
 ### 2. 项目封装推理调用
 
-#### - 示例：LLM推理
+根据模型类型选择对应模块：
+
+| 模型类型        | 使用模块                     |
+| ----------- | ------------------------ |
+| ChatGLM（≤3） | `main.predictor.chatglm` |
+| 其他          | `main.predictor.llm`     |
+
+#### - 示例：ChatGLM 推理
 
 ```python
-from main.predictor.llm import Predictor
+from main.predictor.chatglm import Predictor
 
-predictor = Predictor(model_from_pretrained="model/chatglm3-6b")
+predictor = Predictor(model_name="ChatGLM2-6B", model_from_pretrained="model/chatglm3-6b")
 res = predictor("你好?", history=[])
 print(res)
-```
-
-- history: history为二维数组, 其中每一项对应一个`query`的`history`.
-
-#### - 支持VL模型推理
-
-```python
-pred([{
-    "role": "user",
-    "content": [
-        {"type": "image", "image": "./example.jpg"},
-        {"type": "text", "text": "她是谁?"},
-    ]
-}, {
-    "role": "user",
-    "content": [
-        {"type": "image", "image": "./example.jpg"},
-        {"type": "text", "text": "她有哪些著名作品?"},
-    ]
-}])
-```
-
-其中, 对于大尺寸图片需指定其最大像素, 设置方法如下 (以Qwen2.5-VL为例, `最大像素N`一般设为`N*28*28`):
-
-```python
-# min_pixels and max_pixels
-messages = [
-    {
-        "role": "user",
-        "content": [
-            {
-                "type": "image",
-                "image": "file:///path/to/your/image.jpg",
-                "resized_height": 280,
-                "resized_width": 420,
-            },
-            {"type": "text", "text": "Describe this image."},
-        ],
-    }
-]
-# resized_height and resized_width
-messages = [
-    {
-        "role": "user",
-        "content": [
-            {
-                "type": "image",
-                "image": "file:///path/to/your/image.jpg",
-                "min_pixels": 50176,
-                "max_pixels": 50176,
-            },
-            {"type": "text", "text": "Describe this image."},
-        ],
-    }
-]
 ```
 
 #### - 支持流式推理：
 
 ```python
-for res in predictor.predict_stream("你的任务是什么?", history=[]):
-    print(res[1])
+for res in predictor.stream_chat("你的任务是什么?", history=[]):
+    sys.stdout.write('\r' + res[0])
+    sys.stdout.flush()
 ```
 
 ---
 
 ### 3. LoRA 微调模型推理
 
+| 模型类型        | 使用模块                          |
+| ----------- | ----------------------------- |
+| ChatGLM（≤3） | `main.predictor.chatglm_lora` |
+| 其他          | `main.predictor.llm`     |
+
 #### - 示例：ChatGLM LoRA 推理
 
 ```python
-from main.predictor.llm import Predictor
+from main.predictor.chatglm_lora import Predictor
 
-predictor = Predictor(model_from_pretrained="model/chatglm3-6b", peft_path='<PEFT_PATH>')
+pred = Predictor(model_from_pretrained='./model/chatglm3-6b', resume_path='./save_model/RAG/ChatGLM_44136')
 result = pred('采购人委托采购代理机构代理采购项目，发布招标公告后，有权更换采购代理机构吗?', max_new_tokens=512)
 print(result)
 ```
@@ -310,30 +252,53 @@ accelerate config
 
 ## 🎭 五、PEFT + PPO 强化学习微调
 
+本项目现已支持`ChatGLM3`、`ChatGLM4`、`Qwen2.5`等系列的模型进行PEFT+PPO微调训练，使用时注意使用上述模型对应的transformers版本，推荐使用如下版本：
+| 模型系列        |推荐transformers版本                      |
+| -----------  | ----------------------------- |
+| ChatGLM3     |  `4.40.0`   |
+| ChatGLM4     |  `>=4.46.0` （如需要使用`>=4.49.0`，需到[huggingface](https://huggingface.co/THUDM/glm-4-9b-chat/commit/bd8234fe5e0c09c48637a92abb0c797cb5fa0e73)上更新`modeling_chatglm.py`文件）  |
+| Qwen2.5      |  `4.43.0`   |
+
 ```python
-from main.trainer.chatglm_rlhf import Trainer
+from main.trainer.chatglm_rlhf_base import Trainer
+from transformers import AutoTokenizer, AutoConfig
+import datetime
 
-trainer = Trainer(
-    tokenizer=tokenizer,
-    config=config,
-    from_pretrained='/home/lpc/models/chatglm3-6b/',
-    reward_from_pretrained='/home/lpc/models/text2vec-base-chinese/',
-    loader_name='ChatGLM_RLHF',
-    data_path='ID',
-    max_new_tokens=1200,
-    batch_size=2,
-    task_name='ID'
-)
+tokenizer = AutoTokenizer.from_pretrained(r"/root/autodl-tmp/models/chatglm4-9b-chat", trust_remote_code=True)
+config = AutoConfig.from_pretrained(r"/root/autodl-tmp/models/chatglm4-9b-chat", trust_remote_code=True)
 
-for i in trainer(num_epochs=5):
+trainer = Trainer(tokenizer=tokenizer,
+ config=config, 
+ from_pretrained=r"/root/autodl-tmp/models/chatglm4-9b-chat", 
+ reward_from_pretrained=r"/root/autodl-tmp/models/text2vec-base-multilingual", 
+ loader_name='LLM_RLHF',
+ data_path='Wiki_Humans_RL_100', 
+ ratio_for_rlhf=-1.0, 
+ max_length=1024, 
+ batch_size=4, 
+ task_name='Wiki-humans-rawrl-' + '_' + datetime.datetime.now().strftime("%Y%m%d-%H%M%S"))
+
+for i in trainer(num_epochs=50, weight_for_cos_and_jaccard=[0.5, 0.5], ppo_epsilon=0.15, lr=5e-4, ppo_epochs=3, alpha=0.5, beta=0.5, gamma=0): 
     a = i
 ```
 
-- `reward_from_pretrained`: Reward Model模型文件
+基本设置：
+- `reward_from_pretrained`: Reward Model模型文件，在本项目中使用轻便、能准确分词的非通用模型即可实现训练（如`text2vec`）
+- `loader_name`: 数据加载器的名称，可在`main/loaders.py`下查看当前支持的数据形式
+- `data_path`: 数据地址，你需要先创建一个`present.json`，在该文件下进行路径指定，具体操作方法前面已提到，注意，你需要到`loaders.py`中将`data_path`修改存放`present.json`的位置
+- `ratio_for_rlhf`: 进行在线强化学习的概率，可以设置为完全在线学习(=1)，或完全离线学习(<=0)
+- `actor_resume_path`: 策略模型预训练文件(可选)
+- `critic_resume_path`: 评论家模型预训练文件(可选)
+
+其他关键设置：
+- `weight_for_cos_and_jaccard`: 权重矩阵，分配奖励分数中cos相似度指标与jaccard相似度指标的权重，注意二者之和要为1；如果你感兴趣，可以根据任务需求在`model`下修改奖励分配方法
+- `ppo_epsilon`: PPO裁切系数
+- `ppo_epoch`: 指定重要性采样次数，也就是参考模型需要在策略模型更新多少次后进行更新
+- `alpha`、`beta`、`gamma`:分别确定PPO损失式中，策略模型损失、评论家模型损失、熵的权重
 
 数据格式：
 
-- `ChatGLM_RLHF`: 训练数据集格式包含`conversations`, `gold_answers`和`bad_answers`三个字段.
+- `LLM_RLHF`: 训练数据集格式包含`conversations`, `gold_answers`和`bad_answers`三个字段.
 
 ```json
 {
@@ -342,6 +307,21 @@ for i in trainer(num_epochs=5):
   "bad_answers": ["错误答案1", "错误答案2"]
 }
 ```
+
+- PPO对参数极为敏感，且可调节的参数数量较多，因此训练时要多次尝试，找到表现较好的参数组合
+
+- 为了方便对训练进行监控，PPO训练引入了`tensorboard`进行性能监控，可以通过`tensorboard`面板查看当前模型的训练情况
+    - 首先安装`tensorboard`
+    ```bash
+        pip install tensorboard
+    ```
+    - 开始训练后，可在终端使用如下指令打开`tensorboard`面板
+    ```bash
+        tensorboard --logdir={your_saved_dir} [--port=xx]
+    ```
+    其中`--logdir`是你保存的`tensorboard`文件的地址，本项目默认保存在`logs/tensorboard_logs`下；`--port`可以指定面板加载的端口，若不指定，默认在`localhost:6006`上打开。
+
+- 若你有新的想法，需要对上述数据格式进行修改，并修改`loaders`、`models`、`trainers`下的文件，以适配你的设定
 
 ---
 
@@ -371,9 +351,9 @@ collection = client.get_or_create_collection(DB_NAME, embedding_function=sentenc
 ### ✅ 启用 RAG 推理：
 
 ```python
-from main.predictor.llm import Predictor
+from main.predictor.chatglm_lora import Predictor
 
-pred = Predictor(model_from_pretrained='./model/chatglm3-6b', peft_path='./save_model/RAG/ChatGLM_44136')
+pred = Predictor(model_from_pretrained='./model/chatglm3-6b', resume_path='./save_model/RAG/ChatGLM_44136')
 
 user_question = '这里是用户的提问'
 # 检索相关片段
@@ -395,7 +375,8 @@ if not clue:
 else:
     rag_user_question = f'<rag>检索增强知识: \n{clue}</rag>\n请根据以上检索增强知识回答以下问题\n{user_question}'
 # 拼接好线索后进行提问
-result = pred(rag_user_question, history=history)
+result = pred.chat(rag_user_question, history=history)
+history = result[1]
 print(result[0])
 ```
 
@@ -405,9 +386,9 @@ print(result[0])
 
 ```python
 from main.evaluation.inferences import inference_with_data_path
-from main.predictor.llm import Predictor
+from main.predictor.chatglm_lora import Predictor
 
-pred = Predictor(model_from_pretrained='/home/lpc/models/chatglm3-6b/', peft_path='./save_model/ChatGLM_LoRA')
+pred = Predictor(model_from_pretrained='/home/lpc/models/chatglm3-6b/', resume_path='./save_model/ChatGLM_LoRA')
 
 def batcher(item):
     return pred(**item, max_new_tokens=1024, temperature=0, build_message=True)

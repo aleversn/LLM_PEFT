@@ -6,7 +6,7 @@ from main.loaders.llm_pure_text import LLMPureTextDataset
 from main.loaders.chatglm_chat import ChatGLM_ChatDataset
 from main.loaders.qwen_chat import QwenChatDataset
 from main.loaders.llm_chat import LLMChatDataset
-from main.loaders.chatglm_rlhf import ChatGLM_RLHFDataset
+from main.loaders.llm_rlhf import LLM_RLHFDataset
 import torch
 
 def collate_fn_wrapper(tokenizer):
@@ -52,7 +52,7 @@ class AutoDataloader():
     max_length: int; the length of the padding
     '''
 
-    def __init__(self, tokenizer, config, loader_name='LLM_Chat', data_path="Boss", data_present_path="./data/present.json", max_length=50):
+    def __init__(self, tokenizer, config, loader_name='LLM_Chat', data_path="Boss", data_present_path="/root/autodl-tmp/datasets/present.json", max_length=50):
         self.tokenizer = tokenizer
         self.loader_name = loader_name
         self.max_length = max_length
@@ -90,13 +90,13 @@ class AutoDataloader():
             if 'test' in self.data_path:
                 self.test_set = LLMChatDataset(
                     tokenizer, config, self.data_path['test'], max_length=self.max_length, do_shuffle=False)
-        elif loader_name == 'ChatGLM_RLHF':
-            self.train_set = ChatGLM_RLHFDataset(
+        elif loader_name == 'LLM_RLHF':
+            self.train_set = LLM_RLHFDataset(
                 tokenizer, config, self.data_path['train'], max_length=self.max_length, do_shuffle=True)
-            self.eval_set = ChatGLM_RLHFDataset(
+            self.eval_set = LLM_RLHFDataset(
                 tokenizer, config, self.data_path['dev'], max_length=self.max_length, do_shuffle=False)
             if 'test' in self.data_path:
-                self.test_set = ChatGLM_RLHFDataset(
+                self.test_set = LLM_RLHFDataset(
                     tokenizer, config, self.data_path['test'], max_length=self.max_length, do_shuffle=False)
 
     def get_data_present(self, present_path):
