@@ -5,7 +5,7 @@ import numpy as np
 from transformers import AutoTokenizer, AutoModel, AutoConfig
 from functools import partial
 # 与RLHF相关的函数逻辑文件
-# 目前测试可支持ChatGLM3, ChatGLM4, Qwen2.5
+# 目前测试可支持ChatGLM3, ChatGLM4, Qwen2.5, Llama3(3.1, 3.2)
 
 class CriticModel(nn.Module):
     def __init__(self, model_from_pretrained, resume_path=None, layers_keep=1) -> None:

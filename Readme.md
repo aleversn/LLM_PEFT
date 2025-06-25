@@ -310,13 +310,13 @@ accelerate config
 
 ## 🎭 五、PEFT + PPO 强化学习微调
 
-本项目现已支持`ChatGLM3`、`ChatGLM4`、`Qwen2.5`等系列的模型进行PEFT+PPO微调训练，使用时注意使用上述模型对应的transformers版本，推荐使用如下版本：
+本项目现已支持`ChatGLM3`、`ChatGLM4`、`Qwen2.5`、`Llama3`等系列的模型进行PEFT+PPO微调训练，使用时注意使用上述模型对应的transformers版本，推荐使用如下版本：
 | 模型系列        |推荐transformers版本                      |
 | -----------  | ----------------------------- |
 | ChatGLM3     |  `4.40.0`   |
 | ChatGLM4     |  `>=4.46.0` （如需要使用`>=4.49.0`，需到[huggingface](https://huggingface.co/THUDM/glm-4-9b-chat/commit/bd8234fe5e0c09c48637a92abb0c797cb5fa0e73)上更新`modeling_chatglm.py`文件）  |
 | Qwen2.5      |  `4.43.0`   |
-
+| Llama3/3.1/3.2      |  `4.43.0`   |
 ```python
 from main.trainer.chatglm_rlhf_base import Trainer
 from transformers import AutoTokenizer, AutoConfig
