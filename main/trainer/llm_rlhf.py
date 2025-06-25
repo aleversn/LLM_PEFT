@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
-from transformers import AutoModelForCausalLM, AutoModel
+from transformers import AutoModelForCausalLM, AutoModel, AutoConfig
 from transformers import get_linear_schedule_with_warmup
 from peft import get_peft_model, LoraConfig, TaskType, PeftModel
 import numpy as np
@@ -58,6 +58,7 @@ class Trainer():
         self.batch_size_eval = batch_size_eval
         self.eval_mode = eval_mode
         self.decay_up_matrix_T = None
+        self.config_init()
         self.dataloader_init()
         self.qa_logs = {}
         self.model_init(actor_resume_path=actor_resume_path, critic_resume_path=critic_resume_path)
@@ -67,35 +68,47 @@ class Trainer():
             os.mkdir('logs/tensorboard_logs')
         self.writer = SummaryWriter(os.path.join('logs/tensorboard_logs', task_name))
 
+    def config_init(self):
+        self.config = AutoConfig.from_pretrained(
+            self.from_pretrained, trust_remote_code=True) if self.config is None else self.config
+        if self.config.model_type == 'llama':
+            self.tokenizer.pad_token = self.tokenizer.eos_token
+            # Llama3需要手动设置chat_template
+            if self.tokenizer.chat_template is None:
+                with open('chat_template/llama3_chat.jinja', 'r', encoding='utf-8') as f:
+                    self.tokenizer.chat_template = f.read()
+
     # 初始化模型
     def model_init(self, actor_resume_path=None, critic_resume_path=None):
         if self.accelerate.is_local_main_process:
             print('AutoModel Choose Model: {}\n'.format(self.model_from_pretrained))
-        # 初始化actor模型
+        # 初始化actor模型并设置Lora组件
         if self.config.model_type == 'qwen2':
+            lora_module = ['q_proj', 'k_proj', 'v_proj']
             self.model = AutoModelForCausalLM.from_pretrained(
                     self.model_from_pretrained, torch_dtype=torch.bfloat16, device_map=None, low_cpu_mem_usage=False, trust_remote_code=True)
-        else:
+        elif self.config.model_type == 'llama':
+            lora_module = ['q_proj', 'k_proj', 'v_proj']
+            self.model = AutoModelForCausalLM.from_pretrained(
+                    self.model_from_pretrained, torch_dtype=torch.bfloat16, device_map=None, trust_remote_code=True)
+        elif self.config.model_type == 'chatglm':
+            lora_module = ['query_key_value']
             self.model = AutoModel.from_pretrained(
                     self.model_from_pretrained, torch_dtype=torch.bfloat16,trust_remote_code=True)
+        else:
+            raise NotImplementedError(f'{self.config.model_type} series actor isn\'t supported yet.')
         # 初始化critic模型
         self.critic_model = CriticModel(model_from_pretrained=self.model_from_pretrained, resume_path=critic_resume_path, layers_keep=self.critic_layers_keep)
         # 初始化reward模型
         self.reward_model = RewardModel(model_from_pretrained=self.reward_from_pretrained)
         self.ppo = PPO(self.tokenizer, self.qa_logs)
-        # lora相关参数设置
-        if self.config.model_type == 'chatglm':
-            lora_module = ['query_key_value']
-        elif self.config.model_type == 'qwen2':
-            lora_module = ['q_proj', 'k_proj', 'v_proj']
-        else:
-            raise NotImplementedError(f'{self.config.model_type} series has no default lora settings.')
         
+        # 配置Lora
         peft_config = LoraConfig(
             task_type=TaskType.CAUSAL_LM,
             inference_mode=False,
             r=16,
-            target_modules= lora_module,
+            target_modules=lora_module,
             lora_alpha=32,
             lora_dropout=0.1
         )

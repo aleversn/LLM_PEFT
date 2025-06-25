@@ -48,6 +48,10 @@ class Trainer():
             self.from_pretrained, trust_remote_code=True) if self.config is None else self.config
         if self.config.model_type == 'llama':
             self.tokenizer.pad_token = self.tokenizer.eos_token
+            # Llama3需要手动设置chat_template
+            if self.tokenizer.chat_template is None:
+                with open('chat_template/llama3_chat.jinja', 'r', encoding='utf-8') as f:
+                    self.tokenizer.chat_template = f.read()
 
     def model_init(self, resume_path=None):
         if self.accelerate.is_local_main_process:
@@ -254,7 +258,7 @@ class Trainer():
                         [label_tokens],
                         pred_tokens,
                         smoothing_function=SmoothingFunction().method3,
-                    )
+                    ) * 100
                 )
             except:
                 continue

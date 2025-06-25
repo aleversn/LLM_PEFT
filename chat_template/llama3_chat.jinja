@@ -1,0 +1,9 @@
+{% for message in messages %}
+<|start_header_id|>{{ message['role'] }}<|end_header_id|>
+
+{% if message['role'] == 'system' %}
+    Cutting Knowledge Date: December 2023
+    Today Date: 23 July 2024
+{% endif %}
+{{ message['content'] }}<|eot_id|>
+{% endfor %}

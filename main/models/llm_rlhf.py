@@ -5,7 +5,7 @@ import numpy as np
 from transformers import AutoTokenizer, AutoModel, AutoConfig
 from functools import partial
 # 与RLHF相关的函数逻辑文件
-# 目前测试可支持ChatGLM3, ChatGLM4
+# 目前测试可支持ChatGLM3, ChatGLM4, Qwen2.5
 
 class CriticModel(nn.Module):
     def __init__(self, model_from_pretrained, resume_path=None, layers_keep=1) -> None:
@@ -265,7 +265,11 @@ class PPO(nn.Module):
         gae = deltas.matmul(sub_decay_up_matrix_T)
         assert gae.shape == deltas.shape
         return gae
-    
+
+# Example usage:
+# token_ids = get_special_token_ids(tokenizer)
+# print(token_ids)  # Output: {'<pad>': 0, '<|endoftext|>': 50256} (or similar)
+
     def forward(self, is_rlhf, actor_model, reward_model, critic_model, input_ids, input_ids_without_last_turn, last_input_len, query, last_assistant_content, gold_answers, bad_answers, num_beams, num_return_sequences, weight_for_cos_and_jaccard=[0.5, 0.5], ppo_epochs=3, ppo_epislon=0.15, alpha=0.5, beta=0.5, gamma=0, **args):
         if is_rlhf:
             input_ids = input_ids_without_last_turn
@@ -291,8 +295,8 @@ class PPO(nn.Module):
         reward = torch.cat(reward, dim=0)
         assert reward.shape == (len(gen_texts), 1), "need unsqueeze for next scatter_"
         rewards = torch.zeros_like(sequences, dtype=reward.dtype)
-        # GLM3中表示文本结尾的标记符为<pad>，较新的transformers中为<|endoftext|>
-        pad_id = self.tokenizer.convert_tokens_to_ids("<pad>") if '<pad>' in self.tokenizer.added_tokens_encoder else self.tokenizer.convert_tokens_to_ids("<|endoftext|>")
+        # 每个模型表示填充的特殊符有所不同：GLM中为<pad>，qwen中为<|endoftext|>，llama中为<|end_of_text|>，需要分情况使用
+        pad_id = self.tokenizer.pad_token_id
         masks = (sequences!=pad_id).to(torch.long)
         final_position = (sequences[:,input_ids.size(-1):] != pad_id).sum(dim=-1) + input_ids.size(-1) - 1
         index = final_position.unsqueeze(-1)

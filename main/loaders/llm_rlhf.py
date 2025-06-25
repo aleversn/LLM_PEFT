@@ -36,6 +36,13 @@ class LLM_RLHFDataset(Dataset):
         # 对qwen2/qwen2.5,不需要在开头填充特殊字符
         if self.config.model_type == 'qwen2':
             return [], []
+        elif self.config.model_type == 'llama':
+            # Llama 2
+            if "<|begin_of_text|>" not in self.tokenizer.special_tokens_map.values():
+                return [], []
+            # Llama 3
+            else:
+                return [self.tokenizer.convert_tokens_to_ids('<|begin_of_text|>')], [False]  
         elif self.config.model_type == 'chatglm':
             # 新版tokenizer已不支持get_command，换用convert_tokens_to_ids获取特殊标记id
             # GLM3中标记文本开始的符号为sop，GLM4中为<sop>
@@ -46,12 +53,17 @@ class LLM_RLHFDataset(Dataset):
         else:
             raise NotImplementedError(f"{self.config.model_type} series loaders haven't been implemented yet.")
     
-    def build_single_message(self, role, content):
+    def build_single_message(self, message):
+        if message['role'] in ('system', 'user'):
+            loss_mask_val = False
+        else:
+            loss_mask_val = True
+
         if self.config.model_type == 'chatglm':
-            input_ids = self.tokenizer.build_single_message(role, '', content)
-            role_ids = self.tokenizer.build_single_message(role, '', '')
+            input_ids = self.tokenizer.build_single_message(message['role'], '', message['content'])
+            role_ids = self.tokenizer.build_single_message(message['role'], '', '')
             content_len = len(input_ids) - len(role_ids)
-            return input_ids, content_len
+            return input_ids, content_len, [loss_mask_val] * len(input_ids)
         # qwen2/2.5中一条对话的格式要求:开始符+正文内容+结束符+回车符，示例:
         # <|im_strart|>user\n
         # Hello, what's your name?<|im_end|>\n
@@ -60,9 +72,24 @@ class LLM_RLHFDataset(Dataset):
             im_end_token = [self.tokenizer.convert_tokens_to_ids('<|im_end|>')]
             nl_token = self.tokenizer.encode('\n')
             input_ids = im_start_token + self.tokenizer.encode('role') + nl_token + \
-                        self.tokenizer.encode(content) + im_end_token + nl_token
-            return input_ids, len(self.tokenizer.encode(content))
-        # 如有需要，可以参照相应模型的对话格式要求，自行实现新模型的loader
+                        self.tokenizer.encode(message['content']) + im_end_token + nl_token
+            return input_ids, len(self.tokenizer.encode(message['content'])), [loss_mask_val] * len(input_ids)
+        # 对于Llama系列，这里做了更进一步的处理，把最后一组对话最后的角色和其他符号也mask掉，不参与训练
+        # 对于前面的模型来说，这些不必要的信息未mask不会对性能产生太大影响(在qwen2中甚至能提升性能)，而Llama在实验时性能表现出下降
+        elif self.config.model_type == 'llama':
+            input_ids = self.tokenizer.apply_chat_template([message])
+            # Llama 2
+            if "<|begin_of_text|>" not in self.tokenizer.special_tokens_map.values():
+                tokens_to_train = self.tokenizer.encode(message['content']) + [self.tokenizer.convert_tokens_to_ids('</s>')]
+            # Llama 3
+            else:
+                tokens_to_train = self.tokenizer.encode(message['content']) + [self.tokenizer.convert_tokens_to_ids('<|eot_id|>')]
+            loss_mask = [loss_mask_val] * len(input_ids)
+            if loss_mask_val:
+                for x in range(0, len(input_ids) - len(tokens_to_train)):
+                    loss_mask[x] = False
+            return input_ids, len(tokens_to_train), loss_mask
+        # 如有更多需要，可以参照相应模型的对话格式要求，自行实现新模型的loader
         else:
             raise NotImplementedError(f"{self.config.model_type} series loaders haven't been implemented yet.")
              
@@ -77,16 +104,10 @@ class LLM_RLHFDataset(Dataset):
         last_assistant_content = ''
 
         for message in conv:
-            if message['role'] in ('system', 'user'):
-                loss_mask_val = False
-            else:
-                loss_mask_val = True
-
             if message['role'] == 'tool':
                 raise NotImplementedError()
             else:
-                new_input_ids, last_input_len = self.build_single_message(message['role'], message['content'])
-                new_loss_masks = [loss_mask_val] * len(new_input_ids)
+                new_input_ids, last_input_len, new_loss_masks = self.build_single_message(message)
                 # 为新加的字段赋值
                 if message['role'] == 'user':
                     last_user_content = message['content']
@@ -100,7 +121,8 @@ class LLM_RLHFDataset(Dataset):
         # 此处要注意一下各模型的对话格式，有的模型(如glm3, glm4)在一组对话完毕后可能会有结束符需要填充
         if self.config.model_type == 'chatglm':
             input_ids.append(self.tokenizer.eos_token_id)
-        loss_masks = [False, *loss_masks]
+        if self.config.model_type != 'llama':
+            loss_masks = [False, *loss_masks]
         labels = []
         for input_id, mask in zip(input_ids, loss_masks):
             if mask:
