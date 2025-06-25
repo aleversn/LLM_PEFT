@@ -29,11 +29,14 @@ def setup_seed(seed):
     random.seed(seed)
     torch.backends.cudnn.deterministic = True
 
+# 多卡(>=2)时注释掉这段代码
 os.environ['MASTER_ADDR'] = 'localhost'
 os.environ['MASTER_PORT'] = '12345'
 dist.init_process_group(backend='nccl', rank=0, world_size=1)
 kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
 accelerator = Accelerator(kwargs_handlers=[kwargs])
+
+
 setup_seed(3407)
 
 

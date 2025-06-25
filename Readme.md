@@ -378,6 +378,7 @@ for i in trainer(num_epochs=50, weight_for_cos_and_jaccard=[0.5, 0.5], ppo_epsil
         tensorboard --logdir={your_saved_dir} [--port=xx]
     ```
     其中`--logdir`是你保存的`tensorboard`文件的地址，本项目默认保存在`logs/tensorboard_logs`下；`--port`可以指定面板加载的端口，若不指定，默认在`localhost:6006`上打开。
+    - `tensorboard`仅在单卡训练时会有比较直观的监控效果，多卡时曲线会重叠，建议跑多卡前先在单卡上用`tensorboard`看一下效果，然后再在多卡上正式跑
 
 - 若你有新的想法，需要对上述数据格式进行修改，并修改`loaders`、`models`、`trainers`下的文件，以适配你的设定
 
