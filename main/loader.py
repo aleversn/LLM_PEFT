@@ -7,6 +7,7 @@ from main.loaders.chatglm_chat import ChatGLM_ChatDataset
 from main.loaders.qwen_chat import QwenChatDataset
 from main.loaders.llm_chat import LLMChatDataset
 from main.loaders.llm_rlhf import LLM_RLHFDataset
+from main.loaders.llm_dpo import LLMDPODataset
 import torch
 
 def collate_fn_wrapper(tokenizer):
@@ -41,6 +42,52 @@ def collate_fn_wrapper(tokenizer):
                 result[key] = torch.stack(result[key])
         return result
     return left_pad_collate_fn
+
+def collate_fn_wrapper_dpo(tokenizer):
+    def left_pad_collate_fn(batch):
+        result = {
+            "prompt": [],
+            "chosen": [],
+            "rejected": [],
+            "rejected_mask": [],
+            "chosen_mask": [],
+            "input_ids":[],
+            "labels": []
+        }
+        max_length = 0
+        for key in ["chosen", "rejected"]:
+            current_max = max(len(item[key]) for item in batch)
+            max_length = max(max_length, current_max)
+
+        for item in batch:
+            for key in item:
+                if key == ("prompt"):
+                    prompt = torch.tensor(item[key])
+                    result[key].append(prompt)
+                elif key in ("chosen", "rejected"):
+                    pad_length = max_length - len(item[key])
+                    item[key] = torch.cat([torch.LongTensor([tokenizer.pad_token_id] * pad_length), item[key]], dim=-1)
+                    mask = torch.ones(len(item[key])).bool()
+                    mask_length = pad_length + prompt.shape[0]
+                    mask[:mask_length] = False
+                    result[key].append(item[key])
+                    result[f"{key}_mask"].append(mask)
+                elif key == ("input_ids"):
+                    pad_length = max_length - len(item[key])
+                    item[key] = torch.cat([torch.LongTensor([tokenizer.pad_token_id] * pad_length), item[key]], dim=-1)
+                    result[key].append(item[key])
+                elif key == ("labels"):
+                    pad_length = max_length - len(item[key])
+                    item[key] = torch.cat([torch.LongTensor([-100] * pad_length), item[key]], dim=-1)
+                    result[key].append(item[key])
+                
+        # prompt字段没有进行对齐
+        for key in result:
+            if key in ('chosen', 'rejected', 'chosen_mask', 'rejected_mask', 'input_ids', 'labels'):
+                result[key] = torch.stack(result[key])
+        return result
+    return left_pad_collate_fn
+
 
 class AutoDataloader():
 
@@ -98,6 +145,14 @@ class AutoDataloader():
             if 'test' in self.data_path:
                 self.test_set = LLM_RLHFDataset(
                     tokenizer, config, self.data_path['test'], max_length=self.max_length, do_shuffle=False)
+        elif loader_name == 'LLM_DPO':
+            self.train_set = LLMDPODataset(
+                tokenizer, config, self.data_path['train'], max_length=self.max_length, do_shuffle=True)
+            self.eval_set = LLMDPODataset(
+                tokenizer, config, self.data_path['dev'], max_length=self.max_length, do_shuffle=False)
+            if 'test' in self.data_path:
+                self.test_set = LLMDPODataset(
+                    tokenizer, config, self.data_path['test'], max_length=self.max_length, do_shuffle=False)
 
     def get_data_present(self, present_path):
         if not os.path.exists(present_path):
@@ -117,7 +172,11 @@ class AutoDataloader():
                 dataiter_eval = DataLoader(
                     self.test_set, batch_size=batch_size_eval)
         else:
-            left_pad_collate_fn = collate_fn_wrapper(self.tokenizer)
+            # dpo特殊处理对齐
+            if (self.loader_name == 'LLM_DPO'):
+                left_pad_collate_fn = collate_fn_wrapper_dpo(self.tokenizer)
+            else:
+                left_pad_collate_fn = collate_fn_wrapper(self.tokenizer)
             dataiter = DataLoader(self.train_set, batch_size=batch_size, collate_fn=left_pad_collate_fn)
             if eval_mode == 'dev':
                 dataiter_eval = DataLoader(
