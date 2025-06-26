@@ -310,30 +310,53 @@ accelerate config
 
 ## 🎭 五、PEFT + PPO 强化学习微调
 
+本项目现已支持`ChatGLM3`、`ChatGLM4`、`Qwen2.5`、`Llama3`等系列的模型进行PEFT+PPO微调训练，使用时注意使用上述模型对应的transformers版本，推荐使用如下版本：
+| 模型系列        |推荐transformers版本                      |
+| -----------  | ----------------------------- |
+| ChatGLM3     |  `4.40.0`   |
+| ChatGLM4     |  `>=4.46.0` （如需要使用`>=4.49.0`，需到[huggingface](https://huggingface.co/THUDM/glm-4-9b-chat/commit/bd8234fe5e0c09c48637a92abb0c797cb5fa0e73)上更新`modeling_chatglm.py`文件）  |
+| Qwen2.5      |  `4.43.0`   |
+| Llama3/3.1/3.2      |  `4.43.0`   |
 ```python
-from main.trainer.chatglm_rlhf import Trainer
+from main.trainer.chatglm_rlhf_base import Trainer
+from transformers import AutoTokenizer, AutoConfig
+import datetime
 
-trainer = Trainer(
-    tokenizer=tokenizer,
-    config=config,
-    from_pretrained='/home/lpc/models/chatglm3-6b/',
-    reward_from_pretrained='/home/lpc/models/text2vec-base-chinese/',
-    loader_name='ChatGLM_RLHF',
-    data_path='ID',
-    max_new_tokens=1200,
-    batch_size=2,
-    task_name='ID'
-)
+tokenizer = AutoTokenizer.from_pretrained(r"/root/autodl-tmp/models/chatglm4-9b-chat", trust_remote_code=True)
+config = AutoConfig.from_pretrained(r"/root/autodl-tmp/models/chatglm4-9b-chat", trust_remote_code=True)
 
-for i in trainer(num_epochs=5):
+trainer = Trainer(tokenizer=tokenizer,
+ config=config, 
+ from_pretrained=r"/root/autodl-tmp/models/chatglm4-9b-chat", 
+ reward_from_pretrained=r"/root/autodl-tmp/models/text2vec-base-multilingual", 
+ loader_name='LLM_RLHF',
+ data_path='Wiki_Humans_RL_100', 
+ ratio_for_rlhf=-1.0, 
+ max_length=1024, 
+ batch_size=4, 
+ task_name='Wiki-humans-rawrl-' + '_' + datetime.datetime.now().strftime("%Y%m%d-%H%M%S"))
+
+for i in trainer(num_epochs=50, weight_for_cos_and_jaccard=[0.5, 0.5], ppo_epsilon=0.15, lr=5e-4, ppo_epochs=3, alpha=0.5, beta=0.5, gamma=0): 
     a = i
 ```
 
-- `reward_from_pretrained`: Reward Model模型文件
+基本设置：
+- `reward_from_pretrained`: Reward Model模型文件，在本项目中使用轻便、能准确分词的非通用模型即可实现训练（如`text2vec`、`qwen3-embedding`等）
+- `loader_name`: 数据加载器的名称，可在`main/loaders.py`下查看当前支持的数据形式
+- `data_path`: 数据地址，你需要先创建一个`present.json`，在该文件下进行路径指定，具体操作方法前面已提到，注意，你需要到`loaders.py`中将`data_path`修改存放`present.json`的位置
+- `ratio_for_rlhf`: 进行在线强化学习的概率，可以设置为完全在线学习(=1)，或完全离线学习(<=0)
+- `actor_resume_path`: 策略模型预训练文件(可选)
+- `critic_resume_path`: 评论家模型预训练文件(可选)
+
+其他关键设置：
+- `weight_for_cos_and_jaccard`: 权重矩阵，分配奖励分数中cos相似度指标与jaccard相似度指标的权重，注意二者之和要为1；如果你感兴趣，可以根据任务需求在`model`下修改奖励分配方法
+- `ppo_epsilon`: PPO裁切系数
+- `ppo_epoch`: 指定重要性采样次数，也就是参考模型需要在策略模型更新多少次后进行更新
+- `alpha`、`beta`、`gamma`:分别确定PPO损失式中，策略模型损失、评论家模型损失、熵的权重
 
 数据格式：
 
-- `ChatGLM_RLHF`: 训练数据集格式包含`conversations`, `gold_answers`和`bad_answers`三个字段.
+- `LLM_RLHF`: 训练数据集格式包含`conversations`, `gold_answers`和`bad_answers`三个字段.
 
 ```json
 {
@@ -342,6 +365,22 @@ for i in trainer(num_epochs=5):
   "bad_answers": ["错误答案1", "错误答案2"]
 }
 ```
+
+- PPO对参数极为敏感，且可调节的参数数量较多，因此训练时要多次尝试，找到表现较好的参数组合
+
+- 为了方便对训练进行监控，PPO训练引入了`tensorboard`进行性能监控，可以通过`tensorboard`面板查看当前模型的训练情况
+    - 首先安装`tensorboard`
+    ```bash
+        pip install tensorboard
+    ```
+    - 开始训练后，可在终端使用如下指令打开`tensorboard`面板
+    ```bash
+        tensorboard --logdir={your_saved_dir} [--port=xx]
+    ```
+    其中`--logdir`是你保存的`tensorboard`文件的地址，本项目默认保存在`logs/tensorboard_logs`下；`--port`可以指定面板加载的端口，若不指定，默认在`localhost:6006`上打开。
+    - `tensorboard`仅在单卡训练时会有比较直观的监控效果，多卡时曲线会重叠，建议跑多卡前先在单卡上用`tensorboard`看一下效果，然后再在多卡上正式跑
+
+- 若你有新的想法，需要对上述数据格式进行修改，并修改`loaders`、`models`、`trainers`下的文件，以适配你的设定
 
 ---
 

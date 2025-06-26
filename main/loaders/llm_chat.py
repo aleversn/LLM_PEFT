@@ -30,15 +30,39 @@ class LLMChatDataset(Dataset):
         data = [json.loads(line) for line in lines]
         return data
     
+    def init_ids_and_masks(self):
+        # Llama 2
+        if "<|begin_of_text|>" not in self.tokenizer.special_tokens_map.values():
+            return [], []
+        # Llama 3
+        else:
+            return [self.tokenizer.convert_tokens_to_ids('<|begin_of_text|>')], [False]
+
+    def build_single_message(self, t):
+        ids = self.tokenizer.apply_chat_template([t])
+        if t['role'] in ['user', 'system']:
+            ls = [-100 for _ in ids]
+            return ids, ls
+        
+        # 由于只需要训练生成的回答，因此要mask掉最后一组对话的身份信息以及无关的符号
+        # Llama 2
+        if "<|begin_of_text|>" not in self.tokenizer.special_tokens_map.values():
+            tokens_to_train = self.tokenizer.encode(t['content']) + [self.tokenizer.convert_tokens_to_ids('</s>')]
+        # Llama 3
+        else:
+            tokens_to_train = self.tokenizer.encode(t['content']) + [self.tokenizer.convert_tokens_to_ids('<|eot_id|>')]
+
+        ls = [-100] * (len(ids) - len(tokens_to_train)) + tokens_to_train
+        return ids, ls
+
     def process_item(self, item):
         conv = item['conversations'] if 'conversations' in item else item
 
-        input_ids, labels = [], []
+        input_ids, labels = self.init_ids_and_masks()
 
         for t in conv:
-            role = t['role']
-            ids = self.tokenizer.apply_chat_template([t])
-            ls = ids if role not in ['user', 'system'] else [-100 for _ in ids]
+            ids, ls = self.build_single_message(t)
+
             input_ids.extend(ids)
             labels.extend(ls)
             

@@ -4,7 +4,8 @@ import random
 import numpy as np
 from transformers import AutoTokenizer, AutoModel, AutoConfig
 from functools import partial
-
+# 与RLHF相关的函数逻辑文件
+# 目前测试可支持ChatGLM3, ChatGLM4, Qwen2.5, Llama3(3.1, 3.2)
 
 class CriticModel(nn.Module):
     def __init__(self, model_from_pretrained, resume_path=None, layers_keep=1) -> None:
@@ -14,7 +15,8 @@ class CriticModel(nn.Module):
         self.config.num_layers = layers_keep
         model = AutoModel.from_pretrained(
             model_from_pretrained, trust_remote_code=True, config=self.config).to(torch.bfloat16)
-        model = model.transformer
+        if hasattr(model, 'transformer'):
+            model = model.transformer
         # solve RuntimeError: "LayerNormKernelImpl" not implemented for 'Half'
         self.model = model
         self.output_linear = nn.Linear(
@@ -25,7 +27,10 @@ class CriticModel(nn.Module):
     def forward(self, **kwargs):
         output = self.model(**kwargs)
         values = torch.tanh(self.output_linear(output.last_hidden_state))
-        return values.transpose(0, 1).squeeze(-1)
+        if values.shape[0] == kwargs['input_ids'].shape[0]:# 如果已经是batch-first
+            return values.squeeze(-1)# 直接去除最后一维
+        else:
+            return values.transpose(0, 1).squeeze(-1)# 保持原逻辑
 
 
 class RewardModel(nn.Module):
@@ -146,7 +151,7 @@ class PPO(nn.Module):
             metadata, content = response.split("\n", maxsplit=1)
             if not metadata.strip():
                 content = content.strip()
-                content = content.replace("[[训练时间]]", "2023年")
+                content = content.replace("[[训练时间]]", "2025年")
             else:
                 content = {"name": metadata.strip(), "content": content}
         return content
@@ -260,8 +265,12 @@ class PPO(nn.Module):
         gae = deltas.matmul(sub_decay_up_matrix_T)
         assert gae.shape == deltas.shape
         return gae
-    
-    def forward(self, is_rlhf, actor_model, reward_model, critic_model, input_ids, input_ids_without_last_turn, last_input_len, query, last_assistant_content, gold_answers, bad_answers, num_beams, num_return_sequences, ppo_epochs, **args):
+
+# Example usage:
+# token_ids = get_special_token_ids(tokenizer)
+# print(token_ids)  # Output: {'<pad>': 0, '<|endoftext|>': 50256} (or similar)
+
+    def forward(self, is_rlhf, actor_model, reward_model, critic_model, input_ids, input_ids_without_last_turn, last_input_len, query, last_assistant_content, gold_answers, bad_answers, num_beams, num_return_sequences, weight_for_cos_and_jaccard=[0.5, 0.5], ppo_epochs=3, ppo_epislon=0.15, alpha=0.5, beta=0.5, gamma=0, **args):
         if is_rlhf:
             input_ids = input_ids_without_last_turn
             max_new_tokens = torch.max(last_input_len).item()
@@ -281,13 +290,14 @@ class PPO(nn.Module):
                 b_gen_texts = [gen_texts[i]]
             b_gold_answers = gold_answers[i]
             b_bad_answers = bad_answers[i]
-            b_reward = reward_model(gen_texts=b_gen_texts, gold_answers=b_gold_answers, bad_answers=b_bad_answers).unsqueeze(1)
+            b_reward = reward_model(gen_texts=b_gen_texts, gold_answers=b_gold_answers, bad_answers=b_bad_answers, weight_for_cos_and_jaccard=weight_for_cos_and_jaccard).unsqueeze(1)
             reward.append(b_reward)
         reward = torch.cat(reward, dim=0)
         assert reward.shape == (len(gen_texts), 1), "need unsqueeze for next scatter_"
         rewards = torch.zeros_like(sequences, dtype=reward.dtype)
-        pad_id = self.tokenizer.convert_tokens_to_ids("<pad>")
-        masks = (sequences!=pad_id).long()
+        # 每个模型表示填充的特殊符有所不同：GLM中为<pad>，qwen中为<|endoftext|>，llama中为<|end_of_text|>，需要分情况使用
+        pad_id = self.tokenizer.pad_token_id
+        masks = (sequences!=pad_id).to(torch.long)
         final_position = (sequences[:,input_ids.size(-1):] != pad_id).sum(dim=-1) + input_ids.size(-1) - 1
         index = final_position.unsqueeze(-1)
         rewards.scatter_(dim=1, index=index, src=reward)
@@ -316,8 +326,8 @@ class PPO(nn.Module):
             if torch.isinf(ratio).any():
                 break
             surr1 = ratio * advantages
-            surr2 = torch.clamp(ratio, 1.0 - 0.2, 1.0 + 0.2) * advantages
+            surr2 = torch.clamp(ratio, 1.0 - ppo_epislon, 1.0 + ppo_epislon) * advantages
             actor_loss  = - torch.min(surr1, surr2).mean()
             critic_loss = value_estimator_delta.square().mean()
-            loss = 0.5 * (critic_loss + actor_loss) - 0.001 * entropy
+            loss = alpha * actor_loss + beta * critic_loss - gamma * entropy
             yield loss, logits
