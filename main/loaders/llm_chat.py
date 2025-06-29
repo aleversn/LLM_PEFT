@@ -31,12 +31,15 @@ class LLMChatDataset(Dataset):
         return data
     
     def init_ids_and_masks(self):
-        # Llama 2
-        if "<|begin_of_text|>" not in self.tokenizer.special_tokens_map.values():
-            return [], []
-        # Llama 3
+        if self.config.model_type == 'llama':
+            # Llama 2
+            if "<|begin_of_text|>" not in self.tokenizer.special_tokens_map.values():
+                return [], []
+            # Llama 3
+            else:
+                return [self.tokenizer.convert_tokens_to_ids('<|begin_of_text|>')], [False]
         else:
-            return [self.tokenizer.convert_tokens_to_ids('<|begin_of_text|>')], [False]
+            return [], []
 
     def build_single_message(self, t):
         ids = self.tokenizer.apply_chat_template([t])
@@ -44,15 +47,21 @@ class LLMChatDataset(Dataset):
             ls = [-100 for _ in ids]
             return ids, ls
         
-        # 由于只需要训练生成的回答，因此要mask掉最后一组对话的身份信息以及无关的符号
-        # Llama 2
-        if "<|begin_of_text|>" not in self.tokenizer.special_tokens_map.values():
-            tokens_to_train = self.tokenizer.encode(t['content']) + [self.tokenizer.convert_tokens_to_ids('</s>')]
-        # Llama 3
-        else:
-            tokens_to_train = self.tokenizer.encode(t['content']) + [self.tokenizer.convert_tokens_to_ids('<|eot_id|>')]
+        if self.config.model_type == 'llama':
+            # 由于只需要训练生成的回答，因此要mask掉最后一组对话的身份信息以及无关的符号
+            # Llama 2
+            if "<|begin_of_text|>" not in self.tokenizer.special_tokens_map.values():
+                tokens_to_train = self.tokenizer.encode(t['content']) + [self.tokenizer.convert_tokens_to_ids('</s>')]
+            # Llama 3
+            else:
+                tokens_to_train = self.tokenizer.encode(t['content']) + [self.tokenizer.convert_tokens_to_ids('<|eot_id|>')]
 
-        ls = [-100] * (len(ids) - len(tokens_to_train)) + tokens_to_train
+            ls = [-100] * (len(ids) - len(tokens_to_train)) + tokens_to_train
+        
+        # 对于其他模型，不需要对最后一组信息进行局部mask，将最后一组信息全部作为训练对象
+        else:
+            ls = ids
+
         return ids, ls
 
     def process_item(self, item):
