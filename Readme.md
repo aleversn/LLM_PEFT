@@ -383,8 +383,96 @@ for i in trainer(num_epochs=50, weight_for_cos_and_jaccard=[0.5, 0.5], ppo_epsil
 - 若你有新的想法，需要对上述数据格式进行修改，并修改`loaders`、`models`、`trainers`下的文件，以适配你的设定
 
 ---
+## 六、PEFT+DPO训练
+```python
+from main.trainer.llm_dpo import Trainer
+from transformers import AutoTokenizer, AutoConfig
 
-## 💭 六、RAG（检索增强生成）推理
+tokenizer = AutoTokenizer.from_pretrained("/home/glm-4-9b-chat", trust_remote_code=True)
+config = AutoConfig.from_pretrained("/home/glm-4-9b-chat", trust_remote_code=True)
+trainer = Trainer(tokenizer=tokenizer, config=config, resume_path='./save_model/taobao_1000_nt2_new_1/ChatGLM_32500', from_pretrained='/home/glm-4-9b-chat', loader_name='LLM_DPO', data_path='taobao_1000_dpo', max_length=3600, batch_size=2, batch_size_eval = 2, task_name='taobao_1000_dpo_new_2')
+
+for i in trainer(num_epochs=100, lr=1e-5, beta=0.1):
+    a = i
+```
+参数解释：
+- `resume_path`: lora训练之后保存的模型权重路径
+- `beta`: dpo损失计算参数，通常在0.1-0.5之间
+
+数据格式：
+
+- `LLM_DPO`: 训练数据集格式包含`conversations`, `gold_answers`和`bad_answers`三个字段.
+
+```json
+{
+  "conversations": [...],
+  "gold_answers": "理想答案",
+  "bad_answers": "错误答案"
+}
+```
+---
+## 七、PEFT+GRPO训练
+```python
+from main.trainer.llm_grpo import Trainer
+from transformers import AutoTokenizer, AutoConfig
+from main.utils.reward_func import reward_len
+
+tokenizer = AutoTokenizer.from_pretrained("/home/glm-4-9b-chat", trust_remote_code=True)
+config = AutoConfig.from_pretrained("/home/glm-4-9b-chat", trust_remote_code=True)
+trainer = Trainer(tokenizer=tokenizer, config=config, resume_path='./save_model/resume_1000_nt2_new_2/ChatGLM_15500', from_pretrained='/home/glm-4-9b-chat', data_path='resume_1000_grpo2', data_present_path='./data/resume/present.json', task_name='resume_1000_grpo_new_5')
+
+for i in trainer(reward_func=[reward_len], lr=5e-6, weight_decay=0.1, warmup_ratio=0.2, logging_steps=20, gradient_accumulation_steps=2, max_completion_length=500,\
+                  per_device_train_batch_size = 8,num_generations = 4, num_train_epochs=30, fp16=True, use_vllm=True, save_strategy="epoch", eval_strategy="epoch", logging_strategy="epoch", report_to=["tensorboard"]):
+    a = i
+```
+参数解释：
+- `resume_path`: lora训练之后保存的模型权重路径
+- `reward_func`: 自定义奖励函数列表（支持多个奖励函数）
+- `logging_steps`: 每经过几次参数更新就会打印一次训练指标
+- `gradient_accumulation_steps`: 累计梯度
+- `max_completion_length`: 每个 prompt 后生成文本（completion）的最大 token 数
+- `per_device_train_batch_size`: 每个gpu的batch_size
+- `num_generations`: 一个prompt对应的生成文本数量
+- `num_train_epochs`: 训练轮次
+- `fp16`: 是否使用fp16
+- `use_vllm`: 是否使用vllm加速推理
+- `save_strategy`: 保存的策略，epoch代表一轮保存一次模型
+- `eval_strategy`: 多久跑一次评估
+- `logging_strategy`: 多久记录一次指标
+- `report_to`: 报告工具，可以是tensorboad，也可以是wandb等等
+
+
+数据格式：
+
+- 训练数据集格式包含`prompt`, `answer` 两个字段.
+
+```json
+{
+  "prompt": [...],
+  "anwer": "理想答案"
+}
+```
+- 如果想让模型给出思考过程，`prompt`可以参考如下：
+```json
+[{"role": "system", "content": "以如下格式回答: <reasoning>\n...\n</reasoning>\n<answer>\n...\n</answer>\n"}, {"role": "user", "content": "..."}]
+```
+- 如果不需要模型给出思考过程，`prompt`可以参考如下：
+```json
+[{"role": "user", "content": "..."}]
+```
+
+命令行运行
+- 如果使用了vllm，即use_vllm=True，那么需要开启一个终端，指定gpu运行，命令参考如下。其中需要指定模型的路径，该模型是一个完整的模型，所以需要先将基础模型和训练好的权重合并，可以使用`main/utils/`下的`merge_model.py`合并。
+```python
+CUDA_VISIBLE_DEVICES=0 trl vllm-serve --trust-remote-code true --model /root/ChatGLM_PEFT_new/save_model/resume_1000_nt2_15500_glm4 
+```
+- 然后再开启另一个终端，指定gpu进行grpo训练，命令参考如下（该命令同时也使用了accelerate+deespeed）。
+```python
+CUDA_VISIBLE_DEVICES=1 accelerate launch --num_processes 1 run.py --vllm_device 0
+```
+
+---
+## 💭 八、RAG（检索增强生成）推理
 
 使用前, 需安装好`chromadb`
 
