@@ -1,15 +1,9 @@
 import json
 import torch
-from transformers import AutoTokenizer, AutoModel, AutoConfig, LlamaForCausalLM, AutoModelForCausalLM, TextIteratorStreamer, AutoProcessor
+from transformers import AutoTokenizer, AutoModel, AutoConfig, LlamaForCausalLM, AutoModelForCausalLM, TextIteratorStreamer, AutoProcessor, AutoModelForImageTextToText
 from peft import LoraConfig, TaskType, PeftModel, PeftModelForCausalLM
 import threading
 from typing import Tuple, List, Optional
-
-try:
-    from transformers import Qwen2_5_VLForConditionalGeneration
-except ImportError:
-    Qwen2_5_VLForConditionalGeneration = None
-    print("Qwen2_5_VLForConditionalGeneration is not available. Please install the transformers>=4.47.")
 
 class Predictor():
 
@@ -68,16 +62,29 @@ class Predictor():
         elif self.model_type == "mimo":
             self.eos_token_id = self.config.eos_token_id
             self.bos_token_id = self.config.bos_token_id
-            self.model =  AutoModelForCausalLM.from_pretrained(self.model_from_pretrained, device_map="auto",trust_remote_code=True)
+            self.model =  AutoModelForCausalLM.from_pretrained(self.model_from_pretrained, device_map="auto", trust_remote_code=True)
         elif self.model_type == "tinyr1":
             self.eos_token_id = self.config.eos_token_id
             self.bos_token_id = self.config.bos_token_id
-            self.model =  AutoModelForCausalLM.from_pretrained(self.model_from_pretrained, device_map="auto",trust_remote_code=True)
+            self.model =  AutoModelForCausalLM.from_pretrained(self.model_from_pretrained, device_map="auto", trust_remote_code=True)
         elif self.model_type == "qwen2_5_vl":
             self.eos_token_id = self.config.eos_token_id
             self.bos_token_id = self.config.bos_token_id
-            self.model =  Qwen2_5_VLForConditionalGeneration.from_pretrained(self.model_from_pretrained, torch_dtype=torch.float16, device_map="auto",trust_remote_code=True)
+            from transformers import Qwen2_5_VLForConditionalGeneration
+            self.model =  Qwen2_5_VLForConditionalGeneration.from_pretrained(self.model_from_pretrained, torch_dtype=torch.float16, device_map="auto", trust_remote_code=True)
             self.processor = AutoProcessor.from_pretrained(self.model_from_pretrained, padding_side='left')
+        elif self.model_type == "llava":
+            self.eos_token_id = self.config.eos_token_id
+            self.bos_token_id = self.config.bos_token_id
+            from transformers import LlavaForConditionalGeneration
+            self.model =  LlavaForConditionalGeneration.from_pretrained(self.model_from_pretrained, torch_dtype=torch.float16, device_map="auto", trust_remote_code=True)
+            self.processor = AutoProcessor.from_pretrained(self.model_from_pretrained, padding_side='left')
+        elif self.model_type == "mllama":
+            self.eos_token_id = self.config.eos_token_id
+            self.bos_token_id = self.config.bos_token_id
+            from transformers import MllamaForConditionalGeneration
+            self.model =  MllamaForConditionalGeneration.from_pretrained(self.model_from_pretrained, torch_dtype=torch.float16, device_map="auto", trust_remote_code=True)
+            self.processor = AutoProcessor.from_pretrained(self.model_from_pretrained, padding_side='left', trust_remote_code=True)
         if self.peft_path is not None:
             self.model = PeftModel.from_pretrained(
                 self.model, self.peft_path, config=self.peft_config)
@@ -132,12 +139,13 @@ class Predictor():
                 history.append(query)
         else:
             history_list = [[query] for query in query_list]
-        
-        if self.model_type == 'qwen2_5_vl':
+
+        if self.model_type in ['qwen2_5_vl', 'llava', 'mllama']:
             from qwen_vl_utils import process_vision_info
             image_inputs, video_inputs = process_vision_info(history_list)
+            if self.model_type == 'mllama':
+                image_inputs = [[image] if type(image) != list else image for image in image_inputs]
             return image_inputs, video_inputs
-
 
     def prepare_generate(self, query: str | list = '', history: List = None, build_message=True):
         if not isinstance(query, list):
