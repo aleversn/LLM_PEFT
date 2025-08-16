@@ -69,6 +69,18 @@ class Predictor():
             self.eos_token_id = self.config.eos_token_id
             self.bos_token_id = self.config.bos_token_id
             self.processor = AutoProcessor.from_pretrained(self.model_from_pretrained, padding_side='left')
+        elif self.model_type == "llava":
+            self.eos_token_id = self.config.eos_token_id
+            self.bos_token_id = self.config.bos_token_id
+            from transformers import LlavaForConditionalGeneration
+            self.model =  LlavaForConditionalGeneration.from_pretrained(self.model_from_pretrained, torch_dtype=torch.float16, device_map="auto", trust_remote_code=True)
+            self.processor = AutoProcessor.from_pretrained(self.model_from_pretrained, padding_side='left')
+        elif self.model_type == "mllama":
+            self.eos_token_id = self.config.eos_token_id
+            self.bos_token_id = self.config.bos_token_id
+            from transformers import MllamaForConditionalGeneration
+            self.model =  MllamaForConditionalGeneration.from_pretrained(self.model_from_pretrained, torch_dtype=torch.float16, device_map="auto", trust_remote_code=True)
+            self.processor = AutoProcessor.from_pretrained(self.model_from_pretrained, padding_side='left', trust_remote_code=True)
     
     def process_model_outputs(self, inputs, outputs, tokenizer):
         responses = []
