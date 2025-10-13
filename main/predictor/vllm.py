@@ -1,3 +1,4 @@
+import os
 import json
 import torch
 from PIL import Image
@@ -35,52 +36,20 @@ class Predictor():
         self.model_init(**args)
 
     def model_init(self, **args):
-        self.config = AutoConfig.from_pretrained(
-            self.model_from_pretrained, trust_remote_code=True)
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            self.model_from_pretrained, padding_side="left", trust_remote_code=True)
-        self.model_type = self.config.model_type if hasattr(self.config, 'model_type') else 'llama'
+        config_path = os.path.join(self.model_from_pretrained, 'config.json')
+        if os.path.exists(config_path):
+            with open(config_path, 'r') as f:
+                config_json = json.load(f)
+            if 'model_type' in config_json:
+                self.model_type = config_json['model_type']
+        else:
+            self.config = AutoConfig.from_pretrained(
+                self.model_from_pretrained, trust_remote_code=True)
+            self.model_type = self.config.model_type if hasattr(self.config, 'model_type') else 'llama'
+        if self.model_type in ['deepseek_vl_v2']:
+            args['hf_overrides'] = {"architectures": ["DeepseekVLV2ForCausalLM"]}
         self.llm = LLM(self.model_from_pretrained, tensor_parallel_size=self.tp, trust_remote_code=True, enable_lora=self.lora_path is not None, **args)
-        self.processor = self.tokenizer
-        if hasattr(self.config, 'eos_token_id'):
-            self.eos_token_id = [self.config.eos_token_id]
-        if hasattr(self.config, 'bos_token_id'):
-            self.bos_token_id = [self.config.bos_token_id]
-        if self.model_type == 'chatglm':
-            self.eos_token_id = self.config.eos_token_id
-        elif self.model_type == 'llama':
-            self.tokenizer.pad_token = self.tokenizer.eos_token
-            terminators = [
-                self.tokenizer.eos_token_id,
-                self.tokenizer.convert_tokens_to_ids("<|eot_id|>")
-            ]
-            if not hasattr(self, 'eos_token_id'):
-                self.eos_token_id = []
-            for t in terminators:
-                if t is not None:
-                    self.eos_token_id.append(t)
-        elif self.model_type == "mimo":
-            self.eos_token_id = self.config.eos_token_id
-            self.bos_token_id = self.config.bos_token_id
-        elif self.model_type == "tinyr1":
-            self.eos_token_id = self.config.eos_token_id
-            self.bos_token_id = self.config.bos_token_id
-        elif self.model_type == "qwen2_5_vl":
-            self.eos_token_id = self.config.eos_token_id
-            self.bos_token_id = self.config.bos_token_id
-            self.processor = AutoProcessor.from_pretrained(self.model_from_pretrained, padding_side='left')
-        elif self.model_type == "llava":
-            self.eos_token_id = self.config.eos_token_id
-            self.bos_token_id = self.config.bos_token_id
-            from transformers import LlavaForConditionalGeneration
-            self.model =  LlavaForConditionalGeneration.from_pretrained(self.model_from_pretrained, torch_dtype=torch.float16, device_map="auto", trust_remote_code=True)
-            self.processor = AutoProcessor.from_pretrained(self.model_from_pretrained, padding_side='left')
-        elif self.model_type == "mllama":
-            self.eos_token_id = self.config.eos_token_id
-            self.bos_token_id = self.config.bos_token_id
-            from transformers import MllamaForConditionalGeneration
-            self.model =  MllamaForConditionalGeneration.from_pretrained(self.model_from_pretrained, torch_dtype=torch.float16, device_map="auto", trust_remote_code=True)
-            self.processor = AutoProcessor.from_pretrained(self.model_from_pretrained, padding_side='left', trust_remote_code=True)
+        self.tokenizer = self.llm.get_tokenizer()
     
     def process_model_outputs(self, inputs, outputs, tokenizer):
         responses = []
@@ -104,6 +73,28 @@ class Predictor():
         }
     
     def is_mm(self, message: dict | list):
+        '''
+        1. messages = [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image",
+                        "image": "https://qianwen-res.oss-cn-beijing.aliyuncs.com/Qwen-VL/assets/demo.jpeg",
+                    },
+                    {"type": "text", "text": "Describe this image."},
+                ],
+            }
+        ]
+        2. messages = [
+            {
+                "role": "<|User|>",
+                "content": "<image>\n<|ref|>The giraffe at the back.<|/ref|>.",
+                "images": ["./images/visual_grounding.jpeg"],
+            },
+            {"role": "<|Assistant|>", "content": ""},
+        ]
+        '''
         if not isinstance(message, list):
             message = [message]
         for msg in message:
@@ -111,6 +102,8 @@ class Predictor():
                 for content in msg['content']:
                     if 'type' in content and content['type'] in ['image', 'video']:
                         return True
+            elif 'images' in msg:
+                return True
         return False
     
     def process_mm(self, query_list:list, history_list=None):
@@ -131,6 +124,8 @@ class Predictor():
                     for content in msg['content']:
                         if isinstance(content, dict) and 'type' in content and content['type'] == 'image':
                             images.append(convert_image_mode(Image.open(content['image']), "RGB"))
+                elif 'images' in msg:
+                    images.extend([convert_image_mode(Image.open(img_path), "RGB") for img_path in msg['images']])
             images_list.append(images)
         return images_list
 
@@ -163,8 +158,10 @@ class Predictor():
                     batch_max_len = len(query[i])
         
         if is_mm:
+            print('detect multi-modal input')
             images_list = self.process_mm(query, history)
         else:
+            print('detect text-only input')
             images_list = []
         
         if len(images_list) > 0:
@@ -177,7 +174,6 @@ class Predictor():
             inputs = new_inputs
         
         sampling_params = SamplingParams(temperature=temperature, top_p=top_p, max_tokens=max_new_tokens)
-
         return inputs, sampling_params
     
     def predict(self, query: str | list = '', history: List = None, max_length=512, max_new_tokens=512, num_beams:int=1, top_p: float = 0.8, temperature=1.0, do_sample: bool = False, build_message=True):
